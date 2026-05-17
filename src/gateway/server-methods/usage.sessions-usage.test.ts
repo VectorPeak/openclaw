@@ -101,10 +101,6 @@ import {
 import { loadCombinedSessionStoreForGateway } from "../session-utils.js";
 import { usageHandlers } from "./usage.js";
 
-function realSessionPath(filePath: string): string {
-  return fs.realpathSync.native?.(filePath) ?? fs.realpathSync(filePath);
-}
-
 const TEST_RUNTIME_CONFIG = {
   agents: {
     list: [{ id: "main" }, { id: "opus" }],
@@ -369,8 +365,7 @@ describe("sessions.usage", () => {
         expect(vi.mocked(loadSessionCostSummaryFromCache)).toHaveBeenCalledWith(
           expect.objectContaining({
             agentId: "opus",
-            refreshMode: "background",
-            sessionFile: realSessionPath(sessionFile),
+            sessionFile: fs.realpathSync(sessionFile),
             sessionId: "main",
           }),
         );
@@ -425,9 +420,8 @@ describe("sessions.usage", () => {
         expect(vi.mocked(loadSessionCostSummaryFromCache)).toHaveBeenCalledWith(
           expect.objectContaining({
             agentId: "opus",
-            refreshMode: "background",
             sessionEntry,
-            sessionFile: realSessionPath(sessionFile),
+            sessionFile: fs.realpathSync(sessionFile),
             sessionId: "current",
           }),
         );
@@ -472,9 +466,8 @@ describe("sessions.usage", () => {
         expect(vi.mocked(loadSessionCostSummaryFromCache)).toHaveBeenCalledWith(
           expect.objectContaining({
             agentId: "opus",
-            refreshMode: "background",
             sessionEntry: undefined,
-            sessionFile: realSessionPath(sessionFile),
+            sessionFile: fs.realpathSync(sessionFile),
             sessionId: "shared",
           }),
         );
