@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthProfileStore } from "../../agents/auth-profiles.js";
+import type { AuthProfileEligibility } from "../../agents/auth-profiles/order.js";
 import type { ModelCatalogEntry } from "../../agents/model-catalog.js";
 import type { OpenClawConfig } from "../../config/config.js";
 
@@ -15,9 +16,9 @@ const probeRuntimeMocks = vi.hoisted(() => ({
 }));
 
 const resolveAuthProfileOrderMock = vi.fn(() => mockAllowedProfiles);
-const resolveAuthProfileEligibilityMock = vi.fn(() => ({
+const resolveAuthProfileEligibilityMock = vi.fn<() => AuthProfileEligibility>(() => ({
   eligible: false,
-  reasonCode: "invalid_expires" as const,
+  reasonCode: "invalid_expires",
 }));
 const resolveSecretRefStringMock = vi.fn(async () => "resolved-secret");
 const externalCliDiscoveryScopedMock = vi.fn((params: Record<string, unknown> = {}) => ({
@@ -1057,6 +1058,7 @@ describe("buildProbeTargets reason codes", () => {
     mockAllowedProfiles = ["openai:default", "openai-codex:default"];
     resolveAuthProfileEligibilityMock.mockReturnValue({
       eligible: true,
+      reasonCode: "profile_missing",
     });
     probeRuntimeMocks.selectAgentHarness.mockReturnValueOnce({
       id: "pi",
@@ -1222,6 +1224,7 @@ describe("buildProbeTargets reason codes", () => {
     mockAllowedProfiles = ["openai:default"];
     resolveAuthProfileEligibilityMock.mockReturnValue({
       eligible: true,
+      reasonCode: "profile_missing",
     });
 
     const summary = await withClearedCodexEnv(() =>
@@ -1295,6 +1298,7 @@ describe("buildProbeTargets reason codes", () => {
     mockAllowedProfiles = ["openai:default"];
     resolveAuthProfileEligibilityMock.mockReturnValue({
       eligible: true,
+      reasonCode: "profile_missing",
     });
 
     const summary = await withClearedCodexEnv(() =>
