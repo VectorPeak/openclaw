@@ -739,6 +739,29 @@ allowed_sandbox_modes = ["read-only", "workspace-write"]
     });
   });
 
+  it("forces guardian-reviewed local execution for auto mode over legacy app-server policy", () => {
+    const runtime = resolveRuntimeForTest({
+      pluginConfig: {
+        appServer: {
+          approvalPolicy: "never",
+          sandbox: "danger-full-access",
+          approvalsReviewer: "user",
+        },
+      },
+      env: {
+        OPENCLAW_CODEX_APP_SERVER_APPROVAL_POLICY: "never",
+        OPENCLAW_CODEX_APP_SERVER_SANDBOX: "danger-full-access",
+      },
+      execMode: "auto",
+    });
+
+    expectRuntimePolicy(runtime, {
+      approvalPolicy: "on-request",
+      sandbox: "workspace-write",
+      approvalsReviewer: "auto_review",
+    });
+  });
+
   it.each(["deny", "allowlist"] as const)(
     "blocks Codex app-server local execution for normalized OpenClaw %s exec mode",
     (execMode) => {
@@ -969,7 +992,7 @@ allowed_sandbox_modes = ["read-only", "workspace-write"]
     });
   });
 
-  it("lets explicit app-server policy fields override normalized OpenClaw auto mode", () => {
+  it("forces normalized OpenClaw auto mode over explicit app-server policy fields", () => {
     const runtime = resolveRuntimeForTest({
       pluginConfig: {
         appServer: {
@@ -982,9 +1005,9 @@ allowed_sandbox_modes = ["read-only", "workspace-write"]
     });
 
     expectRuntimePolicy(runtime, {
-      approvalPolicy: "never",
-      sandbox: "danger-full-access",
-      approvalsReviewer: "user",
+      approvalPolicy: "on-request",
+      sandbox: "workspace-write",
+      approvalsReviewer: "auto_review",
     });
   });
 

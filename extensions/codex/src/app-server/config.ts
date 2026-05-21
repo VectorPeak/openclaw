@@ -412,12 +412,15 @@ export function resolveCodexAppServerRuntimeOptions(
   const ignoreLegacyYoloPolicyMode =
     normalizedPolicyMode === "guardian" && explicitPolicyMode === "yolo";
   const forceUserReviewer = execMode !== undefined && execMode !== "auto" && execMode !== "full";
+  const forceGuardianReviewer = execMode === "auto";
   const forceDangerFullAccessSandbox =
     params.execPolicy?.touched === true &&
     params.execPolicy.security === "full" &&
     params.execPolicy.ask !== "off";
+  const forceRuntimePolicy =
+    forceUserReviewer || forceGuardianReviewer || forceDangerFullAccessSandbox;
   const defaultPolicy =
-    explicitPolicyMode && !forceUserReviewer && !ignoreLegacyYoloPolicyMode
+    explicitPolicyMode && !forceRuntimePolicy && !ignoreLegacyYoloPolicyMode
       ? undefined
       : resolveDefaultCodexAppServerPolicy({
           transport,
@@ -432,19 +435,21 @@ export function resolveCodexAppServerRuntimeOptions(
           platform: params.platform,
           hostName: params.hostName,
         });
-  const forcedPolicy =
-    forceUserReviewer || forceDangerFullAccessSandbox
-      ? {
-          approvalPolicy: defaultPolicy?.approvalPolicy ?? "on-request",
-          sandbox: forceDangerFullAccessSandbox
-            ? selectForcedDangerFullAccessSandbox(defaultPolicy)
-            : selectForcedUserApprovalSandbox({
+  const forcedPolicy = forceRuntimePolicy
+    ? {
+        approvalPolicy: defaultPolicy?.approvalPolicy ?? "on-request",
+        sandbox: forceDangerFullAccessSandbox
+          ? selectForcedDangerFullAccessSandbox(defaultPolicy)
+          : forceUserReviewer
+            ? selectForcedUserApprovalSandbox({
                 configuredSandbox,
                 defaultSandbox: defaultPolicy?.sandbox,
-              }),
-          approvalsReviewer: defaultPolicy?.approvalsReviewer ?? "user",
-        }
-      : undefined;
+              })
+            : (defaultPolicy?.sandbox ?? "workspace-write"),
+        approvalsReviewer:
+          defaultPolicy?.approvalsReviewer ?? (forceUserReviewer ? "user" : "auto_review"),
+      }
+    : undefined;
   const policyMode = ignoreLegacyYoloPolicyMode
     ? normalizedPolicyMode
     : (explicitPolicyMode ?? normalizedPolicyMode ?? defaultPolicy?.mode ?? "yolo");
