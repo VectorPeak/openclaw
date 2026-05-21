@@ -189,7 +189,8 @@ function buildSourceReplyPayloadFromMessageToolSend(params: {
     params.pendingText ??
     readStringValue(params.args.text) ??
     readStringValue(params.args.message) ??
-    readStringValue(params.args.content);
+    readStringValue(params.args.content) ??
+    readStringValue(params.args.caption);
   const payload: MessagingToolSourceReplyPayload = {};
   if (text?.trim()) {
     payload.text = text;

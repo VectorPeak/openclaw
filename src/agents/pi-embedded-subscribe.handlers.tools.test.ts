@@ -1258,6 +1258,43 @@ describe("messaging tool media URL tracking", () => {
     ]);
   });
 
+  it("uses caption text for media-only internal UI source reply mirrors", async () => {
+    const { ctx } = createTestContext();
+    ctx.params.sourceReplyDeliveryMode = "message_tool_only";
+
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "message",
+      toolCallId: "tool-caption-source-reply",
+      args: {
+        action: "send",
+        mediaUrl: "file:///reply.png",
+        caption: "caption from webchat",
+      },
+    });
+
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "message",
+      toolCallId: "tool-caption-source-reply",
+      isError: false,
+      result: {
+        details: {
+          deliveryStatus: "sent",
+          sourceReplySink: "internal-ui",
+        },
+      },
+    });
+
+    expect(ctx.state.messagingToolSourceReplyPayloads).toEqual([
+      {
+        text: "caption from webchat",
+        mediaUrl: "file:///reply.png",
+        mediaUrls: ["file:///reply.png"],
+      },
+    ]);
+  });
+
   it("does not record routed or dry-run source replies for transcript mirroring", async () => {
     const { ctx } = createTestContext();
     ctx.params.sourceReplyDeliveryMode = "message_tool_only";
