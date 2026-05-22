@@ -239,6 +239,15 @@ operators can switch to Hetzner when AWS capacity is slow or unavailable. Use
 this lane when you want "a Linux desktop with Slack and a claw running" instead
 of only a bot-to-bot Slack transcript.
 
+`Mantis PR Desktop Lease` is the maintainer handoff workflow for ad hoc PR
+desktop inspection. It can create, report, stop, or reset a shared Crabbox
+desktop lease for an open PR, then upsert a status comment with the authenticated
+portal URL and useful follow-up commands. Linux leases can use AWS, Azure, or
+Hetzner. macOS leases use AWS EC2 Mac capacity with On-Demand market because EC2
+Mac runs on Dedicated Host backed capacity. The workflow checks the requested PR
+head before creating a lease and verifies the fresh remote checkout resolved to
+that exact commit before posting the lease as ready.
+
 `Mantis Telegram Live` wraps the existing Telegram live QA lane in the same PR
 evidence pipeline. It checks out the trusted candidate ref in a separate
 worktree, runs `pnpm openclaw qa telegram --credential-source convex

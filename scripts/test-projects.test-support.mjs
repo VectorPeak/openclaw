@@ -342,6 +342,7 @@ const TOOLING_SOURCE_TEST_TARGETS = new Map([
     "scripts/mantis/build-telegram-desktop-proof-evidence.mjs",
     ["test/scripts/mantis-build-telegram-desktop-proof-evidence.test.ts"],
   ],
+  ["scripts/mantis/pr-desktop-lease.mjs", ["test/scripts/mantis-pr-desktop-lease.test.ts"]],
   ["scripts/mantis/publish-pr-evidence.mjs", ["test/scripts/mantis-publish-pr-evidence.test.ts"]],
   [
     "scripts/run-vitest.mjs",
@@ -403,6 +404,14 @@ const TOOLING_TEST_TARGETS = new Map([
   [
     "test/scripts/mantis-build-telegram-desktop-proof-evidence.test.ts",
     ["test/scripts/mantis-build-telegram-desktop-proof-evidence.test.ts"],
+  ],
+  [
+    "test/scripts/mantis-pr-desktop-lease.test.ts",
+    ["test/scripts/mantis-pr-desktop-lease.test.ts"],
+  ],
+  [
+    "test/scripts/mantis-pr-desktop-lease-workflow.test.ts",
+    ["test/scripts/mantis-pr-desktop-lease-workflow.test.ts"],
   ],
   [
     "test/scripts/plugin-prerelease-test-plan.test.ts",

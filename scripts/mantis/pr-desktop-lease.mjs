@@ -3,16 +3,21 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-const DEFAULT_TTL_MINUTES = { linux: 90, mac: 60, windows: 90 };
+const DEFAULT_TTL_MINUTES = { linux: 90, mac: 60 };
+const MAX_TTL_MINUTES = { linux: 240, mac: 120 };
 const IDLE_TIMEOUT_MINUTES = 30;
+const TRUSTED_LEASE_COMMENT_AUTHORS = new Set(["github-actions[bot]"]);
 const payload = readPayload();
 const repo = required("target_repo");
-const prNumber = Number(required("item_number"));
+const prNumber = Number(requiredAny(["item_number", "pr_number"]));
 const action = normalizeAction(required("action"));
 const platform = normalizePlatform(String(payload.platform || "linux"));
-const provider = String(payload.provider || process.env.CRABBOX_PROVIDER || "aws");
+const provider = normalizeProvider(
+  String(payload.provider || process.env.CRABBOX_PROVIDER || "aws"),
+  platform,
+);
 const requestedHeadSha = String(payload.head_sha || "");
-const ttlMinutes = Number(payload.ttl_minutes || DEFAULT_TTL_MINUTES[platform]);
+const ttlMinutes = normalizeTtlMinutes(payload.ttl_minutes, platform);
 const outputDir = path.join(".artifacts", "qa-e2e", "mantis", "pr-desktop-lease");
 const runUrl =
   process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID
@@ -33,7 +38,15 @@ async function main() {
     return;
   }
 
-  const pull = ghJson(["pr", "view", String(prNumber), "--repo", repo, "--json", "state,headRefOid,url"]);
+  const pull = ghJson([
+    "pr",
+    "view",
+    String(prNumber),
+    "--repo",
+    repo,
+    "--json",
+    "state,headRefOid,url",
+  ]);
   if (String(pull.state || "").toUpperCase() !== "OPEN") {
     postComment({
       status: "failed",
@@ -43,7 +56,7 @@ async function main() {
     return;
   }
   const headSha = String(pull.headRefOid || "");
-  if (requestedHeadSha && headSha && requestedHeadSha !== headSha) {
+  if (action === "lease" && requestedHeadSha && headSha && requestedHeadSha !== headSha) {
     postComment({
       status: "failed",
       failed_step: "head check",
@@ -64,63 +77,101 @@ async function main() {
     return;
   }
   if (action === "status") {
-    const status = inspectLease(active.lease_id);
+    const activeProvider = active.provider || provider;
+    const status = inspectLease(active.lease_id, activeProvider);
     if (status.status !== 0) {
       postComment({
         ...active,
         status: "failed",
-        provider,
+        provider: activeProvider,
         failed_step: "status",
-        failure_excerpt: formatProcessFailure(["crabbox", ...inspectArgs(active.lease_id)], status),
+        failure_excerpt: formatProcessFailure(
+          ["crabbox", ...inspectArgs(active.lease_id, activeProvider)],
+          status,
+        ),
       });
       return;
     }
     postComment({
       ...active,
       status: "already_active",
-      provider,
+      provider: activeProvider,
       status_excerpt: status.stdout || status.stderr,
     });
     return;
   }
   if (action === "stop") {
-    const stop = runCrabbox(["stop", "--provider", provider, active.lease_id], { allowFailure: true });
+    const activeProvider = active.provider || provider;
+    const stop = runCrabbox(["stop", "--provider", activeProvider, active.lease_id], {
+      allowFailure: true,
+    });
     if (stop.status !== 0) {
       postComment({
         ...active,
         status: "failed",
-        provider,
+        provider: activeProvider,
         failed_step: "stop",
-        failure_excerpt: formatProcessFailure(["crabbox", "stop", "--provider", provider, active.lease_id], stop),
+        failure_excerpt: formatProcessFailure(
+          ["crabbox", "stop", "--provider", activeProvider, active.lease_id],
+          stop,
+        ),
       });
       return;
     }
-    postComment({ ...active, status: "stopped", provider });
+    postComment({ ...active, status: "stopped", provider: activeProvider });
     return;
   }
-  const reset = runCrabbox(["webvnc", "reset", "--provider", provider, "--target", targetForPlatform(platform), "--id", active.lease_id], {
-    allowFailure: true,
-  });
+  const activeProvider = active.provider || provider;
+  const reset = runCrabbox(
+    [
+      "webvnc",
+      "reset",
+      "--provider",
+      activeProvider,
+      "--target",
+      targetForPlatform(platform),
+      "--id",
+      active.lease_id,
+    ],
+    {
+      allowFailure: true,
+    },
+  );
   if (reset.status !== 0) {
     postComment({
       ...active,
       status: "failed",
-      provider,
+      provider: activeProvider,
       failed_step: "reset-vnc",
       failure_excerpt: formatProcessFailure(
-        ["crabbox", "webvnc", "reset", "--provider", provider, "--target", targetForPlatform(platform), "--id", active.lease_id],
+        [
+          "crabbox",
+          "webvnc",
+          "reset",
+          "--provider",
+          activeProvider,
+          "--target",
+          targetForPlatform(platform),
+          "--id",
+          active.lease_id,
+        ],
         reset,
       ),
     });
     return;
   }
-  postComment({ ...active, status: "reset", provider, webvnc_bridge: "reset requested" });
+  postComment({
+    ...active,
+    status: "reset",
+    provider: activeProvider,
+    webvnc_bridge: "reset requested",
+  });
 }
 
 function lease(headSha) {
   const existing = findLatestActiveLease();
   if (existing?.lease_id) {
-    postComment({ ...existing, status: "already_active", provider });
+    postComment({ ...existing, status: "already_active", provider: existing.provider || provider });
     return;
   }
 
@@ -128,7 +179,8 @@ function lease(headSha) {
   try {
     const warmup = runCrabbox(warmupArgs());
     leaseID = extractLeaseID(warmup.stdout);
-    if (!leaseID) throw new Error(`warmup did not print a cbx_ lease id\n\n${warmup.stdout || warmup.stderr}`);
+    if (!leaseID)
+      throw new Error(`warmup did not print a cbx_ lease id\n\n${warmup.stdout || warmup.stderr}`);
     const baseState = {
       status: "creating",
       repo,
@@ -144,15 +196,43 @@ function lease(headSha) {
       sharing: "org use",
     };
     writeSummary(baseState);
-    runCrabbox(["run", "--provider", provider, "--id", leaseID, "--fresh-pr", `${repo}#${prNumber}`, "--", "true"]);
-    runCrabbox(["share", "--provider", provider, "--id", leaseID, "--org"], { allowFailure: true });
-    runCrabbox(["webvnc", "daemon", "start", "--provider", provider, "--target", targetForPlatform(platform), "--id", leaseID], {
-      allowFailure: true,
-    });
-    const webvncStatus = runCrabbox(
-      ["webvnc", "status", "--provider", provider, "--target", targetForPlatform(platform), "--id", leaseID],
-      { allowFailure: true },
-    );
+    runCrabbox([
+      "run",
+      "--provider",
+      provider,
+      "--target",
+      targetForPlatform(platform),
+      "--id",
+      leaseID,
+      "--fresh-pr",
+      `${repo}#${prNumber}`,
+      "--",
+      "bash",
+      "-lc",
+      freshPrHeadCheckCommand(headSha),
+    ]);
+    runCrabbox(["share", "--id", leaseID, "--org"]);
+    runCrabbox([
+      "webvnc",
+      "daemon",
+      "start",
+      "--provider",
+      provider,
+      "--target",
+      targetForPlatform(platform),
+      "--id",
+      leaseID,
+    ]);
+    const webvncStatus = runCrabbox([
+      "webvnc",
+      "status",
+      "--provider",
+      provider,
+      "--target",
+      targetForPlatform(platform),
+      "--id",
+      leaseID,
+    ]);
     const ready = {
       ...baseState,
       status: "ready",
@@ -170,7 +250,7 @@ function lease(headSha) {
       provider,
       lease_id: leaseID || null,
       failed_step: leaseID ? "setup" : "warmup",
-      failure_excerpt: error instanceof Error ? error.message : String(error),
+      failure_excerpt: redactSensitiveText(error instanceof Error ? error.message : String(error)),
       webvnc_url: leaseID ? portalURL(leaseID) : null,
     };
     writeSummary(failure);
@@ -193,19 +273,38 @@ function warmupArgs() {
     leaseSlug(),
   ];
   if (platform === "mac") return [...common, "--target", "macos", "--market", "on-demand"];
-  if (platform === "windows") return [...common, "--target", "windows", "--windows-mode", "normal"];
   return [...common, "--target", "linux"];
 }
 
 function postComment(state) {
-  const body = renderComment({ repo, pr_number: prNumber, platform, provider, run_url: runUrl, ...state });
+  const body = renderComment({
+    repo,
+    pr_number: prNumber,
+    platform,
+    provider,
+    run_url: runUrl,
+    ...state,
+  });
   const bodyPath = path.join(outputDir, `comment-${Date.now()}.md`);
   fs.writeFileSync(bodyPath, body);
+  const existing = findLatestTrustedLeaseComment();
+  if (existing?.id) {
+    gh([
+      "api",
+      "--method",
+      "PATCH",
+      `repos/${repo}/issues/comments/${existing.id}`,
+      "-F",
+      `body=@${bodyPath}`,
+    ]);
+    return;
+  }
   gh(["api", `repos/${repo}/issues/${prNumber}/comments`, "-F", `body=@${bodyPath}`]);
 }
 
 function renderComment(state) {
   const status = String(state.status || "ready");
+  const webvncURL = sanitizeWebvncURL(state.webvnc_url || "");
   if (status === "ready") {
     return [
       marker(state),
@@ -215,7 +314,7 @@ function renderComment(state) {
       "",
       summaryLines(state).join("\n"),
       "",
-      `WebVNC: ${state.webvnc_url || "unavailable"}`,
+      `WebVNC: ${webvncURL || "unavailable"}`,
       "",
       usefulCommands(state),
     ].join("\n");
@@ -229,7 +328,7 @@ function renderComment(state) {
       "",
       summaryLines(state).join("\n"),
       "",
-      `WebVNC: ${state.webvnc_url || "unavailable"}`,
+      `WebVNC: ${webvncURL || "unavailable"}`,
     ].join("\n");
   }
   if (status === "stopped") {
@@ -255,7 +354,7 @@ function renderComment(state) {
       `- Platform: \`${state.platform || "linux"}\``,
       `- Provider: \`${state.provider || "aws"}\``,
       "",
-      `WebVNC: ${state.webvnc_url || "unavailable"}`,
+      `WebVNC: ${webvncURL || "unavailable"}`,
     ].join("\n");
   }
   return [
@@ -271,12 +370,12 @@ function renderComment(state) {
     state.lease_id ? `- Lease: \`${state.lease_id}\`` : null,
     `- Failed step: \`${state.failed_step || "unknown"}\``,
     `- Result: ${state.lease_id ? "lease kept for manual inspection" : "no lease was created"}`,
-    state.webvnc_url ? "" : null,
-    state.webvnc_url ? `WebVNC: ${state.webvnc_url}` : null,
+    webvncURL ? "" : null,
+    webvncURL ? `WebVNC: ${webvncURL}` : null,
     "",
     "Failure excerpt:",
     "```text",
-    String(state.failure_excerpt || "No failure excerpt captured.").slice(0, 2000),
+    redactSensitiveText(state.failure_excerpt || "No failure excerpt captured.").slice(0, 2000),
     "```",
   ]
     .filter((line) => line !== null)
@@ -291,7 +390,9 @@ function summaryLines(state) {
     state.slug ? `- Slug: \`${state.slug}\`` : null,
     state.expires_at ? `- Expires: \`${state.expires_at}\`` : null,
     `- Idle timeout: \`${state.idle_timeout_minutes || IDLE_TIMEOUT_MINUTES}m\``,
-    state.head_sha ? `- PR code: \`${repo}#${prNumber}\` at \`${String(state.head_sha).slice(0, 12)}\`` : null,
+    state.head_sha
+      ? `- PR code: \`${repo}#${prNumber}\` at \`${String(state.head_sha).slice(0, 12)}\``
+      : null,
     state.sharing ? `- Sharing: \`${state.sharing}\`` : null,
     state.run_url ? `- Workflow: ${state.run_url}` : null,
   ].filter(Boolean);
@@ -313,19 +414,32 @@ function usefulCommands(state) {
 }
 
 function findLatestLease() {
-  const comments = ghJson(["api", `repos/${repo}/issues/${prNumber}/comments?per_page=100`, "--paginate"]);
+  const comment = findLatestTrustedLeaseComment();
+  if (!comment) return null;
+  const body = String(comment.body || "");
+  const leaseID =
+    body.match(/- Lease: `([^`]+)`/)?.[1] || body.match(/\bcbx_[A-Za-z0-9_-]+\b/)?.[0] || "";
+  return {
+    lease_id: leaseID,
+    platform,
+    provider: body.match(/- Provider: `([^`]+)`/)?.[1] || provider,
+    webvnc_url: sanitizeWebvncURL(body.match(/WebVNC: (https:\/\/\S+)/)?.[1] || ""),
+    expires_at: body.match(/- Expires: `([^`]+)`/)?.[1] || "",
+    status: body.includes("Stopped the Mantis Crabbox") ? "stopped" : "ready",
+  };
+}
+
+function findLatestTrustedLeaseComment() {
+  const comments = ghJson([
+    "api",
+    `repos/${repo}/issues/${prNumber}/comments?per_page=100`,
+    "--paginate",
+  ]);
   for (const comment of comments.reverse()) {
+    if (!isTrustedLeaseComment(comment)) continue;
     const body = String(comment.body || "");
     if (!body.includes(marker({ repo, pr_number: prNumber, platform }))) continue;
-    const leaseID = body.match(/- Lease: `([^`]+)`/)?.[1] || body.match(/\bcbx_[A-Za-z0-9_-]+\b/)?.[0] || "";
-    return {
-      lease_id: leaseID,
-      platform,
-      provider: body.match(/- Provider: `([^`]+)`/)?.[1] || provider,
-      webvnc_url: body.match(/WebVNC: (https:\/\/\S+)/)?.[1] || "",
-      expires_at: body.match(/- Expires: `([^`]+)`/)?.[1] || "",
-      status: body.includes("Stopped the Mantis Crabbox") ? "stopped" : "ready",
-    };
+    return comment;
   }
   return null;
 }
@@ -334,7 +448,7 @@ function findLatestActiveLease() {
   const latest = findLatestLease();
   if (!latest?.lease_id || latest.status === "stopped") return null;
   if (isExpiredCommentLease(latest)) return null;
-  const inspect = inspectLease(latest.lease_id);
+  const inspect = inspectLease(latest.lease_id, latest.provider || provider);
   if (!isActiveInspection(inspect)) return null;
   return {
     ...latest,
@@ -342,12 +456,21 @@ function findLatestActiveLease() {
   };
 }
 
-function inspectLease(leaseID) {
-  return runCrabbox(inspectArgs(leaseID), { allowFailure: true });
+function inspectLease(leaseID, leaseProvider = provider) {
+  return runCrabbox(inspectArgs(leaseID, leaseProvider), { allowFailure: true });
 }
 
-function inspectArgs(leaseID) {
-  return ["inspect", "--provider", provider, "--target", targetForPlatform(platform), "--id", leaseID, "--json"];
+function inspectArgs(leaseID, leaseProvider = provider) {
+  return [
+    "inspect",
+    "--provider",
+    leaseProvider,
+    "--target",
+    targetForPlatform(platform),
+    "--id",
+    leaseID,
+    "--json",
+  ];
 }
 
 function isExpiredCommentLease(lease) {
@@ -371,7 +494,8 @@ function isActiveInspection(result) {
 
 function runCrabbox(args, options = {}) {
   const result = spawnSync("crabbox", args, { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 });
-  if (result.status !== 0 && !options.allowFailure) throw new Error(formatProcessFailure(["crabbox", ...args], result));
+  if (result.status !== 0 && !options.allowFailure)
+    throw new Error(formatProcessFailure(["crabbox", ...args], result));
   return {
     status: result.status ?? 1,
     signal: result.signal ?? null,
@@ -395,7 +519,7 @@ function formatProcessFailure(command, result) {
 }
 
 function trimOutput(value) {
-  const text = String(value || "").trim();
+  const text = redactSensitiveText(value).trim();
   if (!text) return "<empty>";
   return text.length > 4000 ? `${text.slice(0, 4000)}\n...<truncated>` : text;
 }
@@ -409,7 +533,8 @@ function ghJson(args) {
 }
 
 function readPayload() {
-  if (!process.env.GITHUB_EVENT_PATH) return Object.fromEntries(process.argv.slice(2).map((entry) => entry.split("=", 2)));
+  if (!process.env.GITHUB_EVENT_PATH)
+    return Object.fromEntries(process.argv.slice(2).map((entry) => entry.split("=", 2)));
   const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
   return event.client_payload || event.inputs || {};
 }
@@ -420,8 +545,18 @@ function required(key) {
   return String(value);
 }
 
+function requiredAny(keys) {
+  for (const key of keys) {
+    if (payload[key]) return String(payload[key]);
+  }
+  throw new Error(`missing one of: ${keys.map((key) => `payload.${key}`).join(", ")}`);
+}
+
 function writeSummary(state) {
-  fs.writeFileSync(path.join(outputDir, "pr-desktop-lease-summary.json"), JSON.stringify(state, null, 2) + "\n");
+  fs.writeFileSync(
+    path.join(outputDir, "pr-desktop-lease-summary.json"),
+    JSON.stringify(state, null, 2) + "\n",
+  );
 }
 
 function marker(state) {
@@ -437,7 +572,9 @@ function extractLeaseID(text) {
 }
 
 function extractWebvncURL(text) {
-  return String(text || "").match(/https:\/\/\S+\/portal\/leases\/\S+\/vnc\S*/)?.[0] || "";
+  return sanitizeWebvncURL(
+    String(text || "").match(/https:\/\/\S+\/portal\/leases\/\S+\/vnc\S*/)?.[0] || "",
+  );
 }
 
 function portalURL(leaseID) {
@@ -446,7 +583,6 @@ function portalURL(leaseID) {
 
 function targetForPlatform(value) {
   if (value === "mac") return "macos";
-  if (value === "windows") return "windows";
   return "linux";
 }
 
@@ -456,8 +592,66 @@ function normalizeAction(value) {
 }
 
 function normalizePlatform(value) {
-  if (["linux", "mac", "windows"].includes(value)) return value;
+  if (["linux", "mac"].includes(value)) return value;
   if (value === "macos" || value === "darwin") return "mac";
-  if (value === "win") return "windows";
   throw new Error(`unsupported platform: ${value}`);
+}
+
+function freshPrHeadCheckCommand(headSha) {
+  if (!/^[0-9a-f]{40}$/i.test(headSha))
+    throw new Error(`invalid PR head SHA from GitHub: ${headSha || "<empty>"}`);
+  return [
+    'actual="$(git rev-parse HEAD)"',
+    `test "$actual" = "${headSha}" || { echo "fresh-pr checkout resolved $actual, expected ${headSha}" >&2; exit 1; }`,
+  ].join(" && ");
+}
+
+function isTrustedLeaseComment(comment) {
+  const login = String(comment?.user?.login || "");
+  return TRUSTED_LEASE_COMMENT_AUTHORS.has(login);
+}
+
+function sanitizeWebvncURL(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    const url = new URL(text);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return text.replace(/#\S*$/u, "");
+  }
+}
+
+function redactSensitiveText(value) {
+  return String(value || "")
+    .replace(/(https:\/\/\S+\/portal\/leases\/\S+\/vnc)#\S*/gu, "$1")
+    .replace(/([?&#]password=)[^\s&`)"']+/giu, "$1redacted");
+}
+
+function normalizeProvider(value, normalizedPlatform) {
+  const normalized = value.trim().toLowerCase();
+  const allowedByPlatform = {
+    linux: new Set(["aws", "azure", "hetzner"]),
+    mac: new Set(["aws"]),
+  };
+  if (allowedByPlatform[normalizedPlatform]?.has(normalized)) return normalized;
+  throw new Error(
+    `unsupported provider/platform combination: provider=${value} platform=${normalizedPlatform}`,
+  );
+}
+
+function normalizeTtlMinutes(value, normalizedPlatform) {
+  const fallback = DEFAULT_TTL_MINUTES[normalizedPlatform];
+  const raw = value === undefined || value === null || value === "" ? fallback : Number(value);
+  if (!Number.isInteger(raw) || raw < 15) {
+    throw new Error(`ttl_minutes must be an integer of at least 15; received ${value}`);
+  }
+  const max = MAX_TTL_MINUTES[normalizedPlatform];
+  if (raw > max) {
+    throw new Error(
+      `ttl_minutes must be at most ${max} for platform=${normalizedPlatform}; received ${value}`,
+    );
+  }
+  return raw;
 }
