@@ -457,16 +457,22 @@ describe("executeNodeHostCommand", () => {
         host: "node",
       }),
     );
-    expect(registerExecApprovalRequestForHostOrThrowMock).not.toHaveBeenCalled();
+    expect(registerExecApprovalRequestForHostOrThrowMock).toHaveBeenCalledTimes(1);
     expect(createAndRegisterDefaultExecApprovalRequestMock).not.toHaveBeenCalled();
     expect(result.details?.status).toBe("completed");
     expect(
       callGatewayToolMock.mock.calls.some(([method]) => method === "exec.approval.resolve"),
-    ).toBe(false);
+    ).toBe(true);
     const runParams = requireRunParams(requireGatewayCommand("system.run"));
     expect(runParams.approved).toBe(true);
     expect(runParams.approvalDecision).toBe("allow-once");
-    expect(runParams.runId).toEqual(expect.any(String));
+    expect(runParams.runId).toBe(requireRegisteredApprovalRequest().approvalId);
+    expect(callGatewayToolMock.mock.calls).toContainEqual([
+      "exec.approval.resolve",
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+      { id: runParams.runId, decision: "allow-once" },
+      { scopes: ["operator.approvals"] },
+    ]);
   });
 
   it("keeps unparsable node commands on explicit approval in auto-review mode", async () => {
@@ -563,7 +569,7 @@ describe("executeNodeHostCommand", () => {
     expect(result.details?.status).toBe("completed");
   });
 
-  it("does not consult human approval registration for node auto-review allows", async () => {
+  it("does not build a human approval prompt for node auto-review allows", async () => {
     resolveExecHostApprovalContextMock.mockReturnValue({
       approvals: { allowlist: [], file: { version: 1, agents: {} } },
       hostSecurity: "allowlist",
@@ -577,8 +583,6 @@ describe("executeNodeHostCommand", () => {
       segments: [{ resolution: null, argv: ["pwd"] }],
       segmentAllowlistEntries: [],
     });
-    registerExecApprovalRequestForHostOrThrowMock.mockRejectedValueOnce(new Error("gateway down"));
-
     const result = await executeNodeHostCommand({
       command: "pwd",
       workdir: "/tmp/work",
@@ -594,7 +598,7 @@ describe("executeNodeHostCommand", () => {
     });
 
     expect(defaultExecAutoReviewerMock).toHaveBeenCalled();
-    expect(registerExecApprovalRequestForHostOrThrowMock).not.toHaveBeenCalled();
+    expect(registerExecApprovalRequestForHostOrThrowMock).toHaveBeenCalledTimes(1);
     expect(createAndRegisterDefaultExecApprovalRequestMock).not.toHaveBeenCalled();
     expect(result.details?.status).toBe("completed");
   });

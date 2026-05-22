@@ -23,6 +23,7 @@ import {
 import type { ExecuteNodeHostCommandParams } from "./bash-tools.exec-host-node.types.js";
 import * as execHostShared from "./bash-tools.exec-host-shared.js";
 import {
+  DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS,
   DEFAULT_NOTIFY_TAIL_CHARS,
   createApprovalSlug,
   normalizeNotifyOutput,
@@ -86,6 +87,23 @@ export async function executeNodeHostCommand(
       "Warning: security audit suppression changes require explicit approval unless exec is running in yolo mode.",
     );
   }
+  const registerNodeApproval = async (approvalId: string) =>
+    await registerExecApprovalRequestForHostOrThrow({
+      approvalId,
+      systemRunPlan: prepared.plan,
+      env: target.env,
+      workdir: prepared.cwd,
+      host: "node",
+      nodeId: target.nodeId,
+      security: hostSecurity,
+      ask: hostAsk,
+      commandHighlighting: params.commandHighlighting,
+      ...buildExecApprovalRequesterContext({
+        agentId: prepared.agentId,
+        sessionKey: prepared.sessionKey,
+      }),
+      ...buildExecApprovalTurnSourceContext(params),
+    });
 
   let inlineApprovedByAsk = false;
   let inlineApprovalDecision: "allow-once" | "allow-always" | null = null;
@@ -118,9 +136,17 @@ export async function executeNodeHostCommand(
         },
       });
       if (decision.decision === "allow-once") {
+        const approvalId = crypto.randomUUID();
+        await registerNodeApproval(approvalId);
+        await callGatewayTool(
+          "exec.approval.resolve",
+          { timeoutMs: DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS },
+          { id: approvalId, decision: "allow-once" },
+          { scopes: [APPROVALS_SCOPE] },
+        );
         inlineApprovedByAsk = true;
         inlineApprovalDecision = "allow-once";
-        inlineApprovalId = crypto.randomUUID();
+        inlineApprovalId = approvalId;
       }
       if (decision.decision === "deny") {
         return failedTextResult(`exec auto-review denied command: ${decision.rationale}`, {
@@ -141,23 +167,6 @@ export async function executeNodeHostCommand(
         turnSourceChannel: params.turnSourceChannel,
         turnSourceAccountId: params.turnSourceAccountId,
       });
-      const registerNodeApproval = async (approvalId: string) =>
-        await registerExecApprovalRequestForHostOrThrow({
-          approvalId,
-          systemRunPlan: prepared.plan,
-          env: target.env,
-          workdir: prepared.cwd,
-          host: "node",
-          nodeId: target.nodeId,
-          security: hostSecurity,
-          ask: hostAsk,
-          commandHighlighting: params.commandHighlighting,
-          ...buildExecApprovalRequesterContext({
-            agentId: prepared.agentId,
-            sessionKey: prepared.sessionKey,
-          }),
-          ...buildExecApprovalTurnSourceContext(params),
-        });
       const {
         approvalId,
         approvalSlug,
