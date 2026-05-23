@@ -338,7 +338,11 @@ function resolveUnplannedMutableFileOperandSnapshot(params: {
 function resolveExpectedMutableFileOperandSnapshot(
   phase: SystemRunPolicyPhase,
 ): MutableFileOperandSnapshotResult | null {
-  if (phase.approvalPlan || phase.approvalDecision === "allow-once") {
+  if (
+    phase.approvalPlan ||
+    phase.approvalDecision === "allow-once" ||
+    (phase.approvalDecision === "allow-always" && phase.inlineEvalHit === null)
+  ) {
     return resolveMutableFileOperandSnapshotSync({
       argv: phase.argv,
       cwd: phase.cwd,

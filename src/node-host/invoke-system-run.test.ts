@@ -1041,6 +1041,29 @@ describe("handleSystemRunInvoke mac app exec host routing", () => {
     }
   });
 
+  it("requires mutable script binding for allow-always approved system.run commands", async () => {
+    const tmp = createFixtureDir("openclaw-system-run-allow-always-script-binding-");
+    const scriptPath = path.join(tmp, "read-info.js");
+    fs.writeFileSync(scriptPath, 'console.log("allow-always");\n');
+
+    const runCommand = vi.fn(async () => createLocalRunResult("should-not-run"));
+    const invoke = await runSystemInvoke({
+      preferMacAppExecHost: false,
+      command: [process.execPath, scriptPath],
+      cwd: tmp,
+      runCommand,
+      security: "full",
+      ask: "always",
+      approvalDecision: "allow-always",
+    });
+
+    expect(runCommand).not.toHaveBeenCalled();
+    expectInvokeErrorMessage(invoke.sendInvokeResult, {
+      message: "SYSTEM_RUN_DENIED: approval missing script operand binding",
+      exact: true,
+    });
+  });
+
   it("requires mutable script binding for allowlisted direct system.run commands", async () => {
     const tmp = createFixtureDir("openclaw-system-run-allowlisted-script-binding-");
     const scriptPath = path.join(tmp, "read-info.js");
@@ -2169,10 +2192,21 @@ describe("handleSystemRunInvoke mac app exec host routing", () => {
             dir: tempDir,
             name: "awk",
           });
-          const benign = await runSystemInvoke({
-            preferMacAppExecHost: false,
+          fs.writeFileSync(path.join(tempDir, "script.awk"), "{ print $1 }\n");
+          const prepared = buildSystemRunApprovalPlan({
             command: [executablePath, "-F", ",", "-f", "script.awk", "data.csv"],
             cwd: tempDir,
+          });
+          expect(prepared.ok).toBe(true);
+          if (!prepared.ok) {
+            throw new Error("unreachable");
+          }
+          const benign = await runSystemInvoke({
+            preferMacAppExecHost: false,
+            command: prepared.plan.argv,
+            rawCommand: prepared.plan.commandText,
+            systemRunPlan: prepared.plan,
+            cwd: prepared.plan.cwd ?? tempDir,
             security: "allowlist",
             ask: "on-miss",
             approvalDecision: "allow-always",
