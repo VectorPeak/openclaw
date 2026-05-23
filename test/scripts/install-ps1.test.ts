@@ -232,6 +232,7 @@ describe("install.ps1 failure handling", () => {
     const pnpmVersionBody = extractFunctionBody(source, "Get-RepoPnpmVersion");
     const pnpmVersionMatchBody = extractFunctionBody(source, "Test-PnpmCommandMatchesVersion");
     const ensurePnpmBody = extractFunctionBody(source, "Ensure-Pnpm");
+    const buildNodeOptionsBody = extractFunctionBody(source, "Invoke-WithGitBuildNodeOptions");
     const gitInstallBody = extractFunctionBody(source, "Install-OpenClawFromGit");
     const mainBody = extractFunctionBody(source, "Main");
 
@@ -267,7 +268,13 @@ describe("install.ps1 failure handling", () => {
     expect(gitInstallBody).toContain(
       'Write-Host "[!] pnpm install failed for the Git checkout"',
     );
-    expect(gitInstallBody).toContain("& $pnpmCommand build");
+    expect(gitInstallBody).toContain(
+      "Invoke-WithGitBuildNodeOptions -ScriptBlock { & $pnpmCommand build }",
+    );
+    expect(buildNodeOptionsBody).toContain('--max-old-space-size=6144');
+    expect(buildNodeOptionsBody).toContain("$previousNodeOptions = $env:NODE_OPTIONS");
+    expect(buildNodeOptionsBody).toContain("$env:NODE_OPTIONS = \"$previousNodeOptions $heapOption\"");
+    expect(buildNodeOptionsBody).toContain("Remove-Item Env:NODE_OPTIONS");
     expect(gitInstallBody).toContain(
       'Write-Host "[!] pnpm build failed for the Git checkout"',
     );

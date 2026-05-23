@@ -29,6 +29,32 @@ function Test-BooleanSuccessResult {
     return ($Results.Count -gt 0 -and $Results[-1] -eq $true)
 }
 
+function Invoke-WithGitBuildNodeOptions {
+    param([scriptblock]$ScriptBlock)
+
+    $previousNodeOptions = $env:NODE_OPTIONS
+    $heapOption = "--max-old-space-size=6144"
+    $hasHeapOption = (-not [string]::IsNullOrWhiteSpace($previousNodeOptions)) -and ($previousNodeOptions -match "(^|\s)--max-old-space-size(=|\s|$)")
+
+    if ($hasHeapOption) {
+        $env:NODE_OPTIONS = $previousNodeOptions
+    } elseif ([string]::IsNullOrWhiteSpace($previousNodeOptions)) {
+        $env:NODE_OPTIONS = $heapOption
+    } else {
+        $env:NODE_OPTIONS = "$previousNodeOptions $heapOption"
+    }
+
+    try {
+        & $ScriptBlock
+    } finally {
+        if ($null -eq $previousNodeOptions) {
+            Remove-Item Env:NODE_OPTIONS -ErrorAction SilentlyContinue
+        } else {
+            $env:NODE_OPTIONS = $previousNodeOptions
+        }
+    }
+}
+
 function Complete-Install {
     param([bool]$Succeeded)
 
@@ -1056,7 +1082,7 @@ function Install-OpenClawFromGit {
         if (-not (& $pnpmCommand ui:build)) {
             Write-Host "[!] UI build failed; continuing (CLI may still work)" -ForegroundColor Yellow
         }
-        & $pnpmCommand build
+        Invoke-WithGitBuildNodeOptions -ScriptBlock { & $pnpmCommand build }
         if ($LASTEXITCODE -ne 0) {
             Write-Host "[!] pnpm build failed for the Git checkout" -ForegroundColor Red
             return $false
