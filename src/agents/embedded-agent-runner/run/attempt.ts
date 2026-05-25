@@ -4754,6 +4754,7 @@ export async function runEmbeddedAttempt(
           acceptedSessionSpawns,
           lastToolError,
           lastAssistant,
+          toolMetas: toolMetasNormalized,
           replayMetadata,
           promptErrorSource,
           timedOutDuringCompaction,
