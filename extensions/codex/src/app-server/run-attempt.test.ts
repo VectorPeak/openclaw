@@ -6826,6 +6826,9 @@ describe("runCodexAppServerAttempt", () => {
           },
         },
       } as never;
+      params.sessionId = "diagnostic-session-1";
+      params.sessionKey = "agent:diagnostic:diagnostic-session-1";
+      params.runId = "diagnostic-run-1";
       const run = runCodexAppServerAttempt(params);
       await harness.waitForMethod("turn/start");
       await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
@@ -6842,7 +6845,7 @@ describe("runCodexAppServerAttempt", () => {
       const completedEvent = diagnosticEvents.find(
         (event) => event.type === "model.call.completed",
       );
-      expect(startedEvent?.callId).toBe("run-1:codex-model:1");
+      expect(startedEvent?.callId).toBe("diagnostic-run-1:codex-model:1");
       expect(startedEvent?.trace?.traceId).toBeTypeOf("string");
       expect(JSON.stringify(startedEvent)).not.toContain("hello");
       const startedContent = diagnosticContentByType.get("model.call.started")?.modelContent;
@@ -6859,7 +6862,7 @@ describe("runCodexAppServerAttempt", () => {
           }),
         }),
       );
-      expect(completedEvent?.callId).toBe("run-1:codex-model:1");
+      expect(completedEvent?.callId).toBe("diagnostic-run-1:codex-model:1");
       expect(JSON.stringify(completedEvent)).not.toContain("hello back");
       expect(
         JSON.stringify(diagnosticContentByType.get("model.call.completed")?.modelContent),
