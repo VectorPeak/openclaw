@@ -161,6 +161,9 @@ export type ChatProps = {
   showNewMessages?: boolean;
   onScrollToBottom?: () => void;
   onRefresh: () => void;
+  historyHasMore?: boolean;
+  historyLoadingMore?: boolean;
+  onLoadOlderHistory?: () => void | Promise<void>;
   onToggleFocusMode?: () => void;
   getDraft?: () => string;
   onDraftChange: (next: string) => void;
@@ -1664,6 +1667,8 @@ export function renderChat(props: ChatProps) {
   const showLoadingSkeleton = props.loading && chatItems.length === 0;
   const threadContextWindow =
     activeSession?.contextTokens ?? props.sessions?.defaults?.contextTokens ?? null;
+  const showLoadOlder = Boolean(props.historyHasMore && props.onLoadOlderHistory);
+  const loadOlderDisabled = Boolean(props.loading || props.historyLoadingMore);
 
   const thread = html`
     <div
@@ -1682,6 +1687,24 @@ export function renderChat(props: ChatProps) {
       @click=${handleCodeBlockCopy}
     >
       <div class="chat-thread-inner">
+        ${showLoadOlder
+          ? html`
+              <div class="chat-history-page-control">
+                <button
+                  class="btn btn--subtle btn--sm chat-history-page-control__button"
+                  type="button"
+                  ?disabled=${loadOlderDisabled}
+                  @click=${() => {
+                    if (!loadOlderDisabled) {
+                      void props.onLoadOlderHistory?.();
+                    }
+                  }}
+                >
+                  ${props.historyLoadingMore ? "Loading older messages..." : "Load older messages"}
+                </button>
+              </div>
+            `
+          : nothing}
         ${showLoadingSkeleton
           ? html`
               <div class="chat-loading-skeleton" aria-label="Loading chat">
