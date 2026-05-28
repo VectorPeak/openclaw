@@ -310,30 +310,6 @@ function hasAgentListModelTimeout(value: unknown): boolean {
   });
 }
 
-function migrateLegacyEmbeddedAgentKey(
-  container: Record<string, unknown>,
-  pathLabel: string,
-  changes: string[],
-): void {
-  const legacy = getRecord(container.embeddedPi);
-  if (!legacy) {
-    return;
-  }
-  const existing = getRecord(container.embeddedAgent);
-  if (!existing) {
-    container.embeddedAgent = legacy;
-    changes.push(`Moved ${pathLabel}.embeddedPi → ${pathLabel}.embeddedAgent.`);
-  } else {
-    const merged = structuredClone(existing);
-    mergeMissing(merged, legacy);
-    container.embeddedAgent = merged;
-    changes.push(
-      `Merged ${pathLabel}.embeddedPi → ${pathLabel}.embeddedAgent (filled missing fields from legacy; kept explicit embeddedAgent values).`,
-    );
-  }
-  delete container.embeddedPi;
-}
-
 function isLegacyMemorySearchAutoProvider(value: unknown): boolean {
   return typeof value === "string" && value.trim().toLowerCase() === "auto";
 }
