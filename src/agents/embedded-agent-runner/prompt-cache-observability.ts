@@ -137,8 +137,24 @@ function diffSnapshots(
   return changes.length > 0 ? changes : null;
 }
 
-export function collectPromptCacheToolNames(tools: Array<{ name?: string }>): string[] {
-  return tools.map((tool) => tool.name?.trim()).filter((name): name is string => Boolean(name));
+export function collectPromptCacheToolNames(tools: Array<{ name?: unknown }>): string[] {
+  const names: string[] = [];
+  for (const tool of tools) {
+    let name: unknown;
+    try {
+      name = tool.name;
+    } catch {
+      continue;
+    }
+    if (typeof name !== "string") {
+      continue;
+    }
+    const trimmed = name.trim();
+    if (trimmed) {
+      names.push(trimmed);
+    }
+  }
+  return names;
 }
 
 export function beginPromptCacheObservation(params: {

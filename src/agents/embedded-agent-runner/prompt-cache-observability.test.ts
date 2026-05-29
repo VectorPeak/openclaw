@@ -17,6 +17,23 @@ describe("prompt cache observability", () => {
     ).toEqual(["read", "write"]);
   });
 
+  it("skips unreadable plugin tool names when collecting prompt-cache diagnostics", () => {
+    const unreadableTool = {
+      get name(): string {
+        throw new Error("fuzzplugin prompt cache tool name is unreadable");
+      },
+    };
+
+    expect(
+      collectPromptCacheToolNames([
+        { name: " read " },
+        unreadableTool,
+        { name: "   " },
+        { name: "write" },
+      ]),
+    ).toEqual(["read", "write"]);
+  });
+
   it("tracks cache-relevant changes and reports a real cache-read drop", () => {
     const first = beginPromptCacheObservation({
       sessionId: "session-1",
