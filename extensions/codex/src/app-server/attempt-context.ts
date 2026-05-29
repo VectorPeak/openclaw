@@ -11,7 +11,7 @@ import {
   type EmbeddedRunAttemptResult,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { resolveAgentWorkspaceDir } from "openclaw/plugin-sdk/agent-runtime";
-import type { CodexDynamicToolSpec, JsonObject, JsonValue } from "./protocol.js";
+import type { CodexDynamicToolSpec, JsonObject } from "./protocol.js";
 import { isJsonObject } from "./protocol.js";
 import type { CodexAppServerThreadBinding } from "./session-binding.js";
 import { readCodexMirroredSessionHistoryMessages } from "./session-history.js";
@@ -255,7 +255,10 @@ export function buildCodexSystemPromptReport(params: {
   skillsPrompt: string;
   tools: CodexDynamicToolSpec[];
 }): CodexSystemPromptReport {
-  const toolEntries = params.tools.map(buildCodexToolReportEntry);
+  const toolEntries = params.tools.flatMap((tool) => {
+    const entry = buildCodexToolReportEntry(tool);
+    return entry ? [entry] : [];
+  });
   const schemaChars = toolEntries.reduce((sum, tool) => sum + tool.schemaChars, 0);
   const skillsPrompt = params.skillsPrompt.trim();
   const bootstrapMaxChars = readPositiveNumber(
@@ -319,11 +322,15 @@ function buildCodexSkillReportEntries(
     .filter((entry) => entry.blockChars > 0);
 }
 
-function buildCodexToolReportEntry(tool: CodexDynamicToolSpec): CodexToolReportEntry {
-  const summary = tool.description.trim();
-  if (tool.deferLoading === true) {
+function buildCodexToolReportEntry(tool: CodexDynamicToolSpec): CodexToolReportEntry | undefined {
+  const name = readCodexToolReportString(tool, "name")?.trim();
+  if (!name) {
+    return undefined;
+  }
+  const summary = (readCodexToolReportString(tool, "description") ?? "").trim();
+  if (readValue(tool, "deferLoading") === true) {
     return {
-      name: tool.name,
+      name,
       summaryChars: summary.length,
       summaryHash: sha256Text(summary),
       schemaChars: 0,
@@ -332,15 +339,15 @@ function buildCodexToolReportEntry(tool: CodexDynamicToolSpec): CodexToolReportE
     };
   }
   return {
-    name: tool.name,
+    name,
     summaryChars: summary.length,
     summaryHash: sha256Text(summary),
-    ...buildCodexToolSchemaStats(tool.inputSchema),
+    ...buildCodexToolSchemaStats(readValue(tool, "inputSchema")),
   };
 }
 
 function buildCodexToolSchemaStats(
-  schema: JsonValue,
+  schema: unknown,
 ): Pick<CodexToolReportEntry, "schemaChars" | "schemaHash" | "propertiesCount"> {
   const schemaChars = (() => {
     try {
@@ -378,7 +385,7 @@ function normalizeForStableHash(value: unknown): unknown {
   return value;
 }
 
-function stableJsonHash(value: JsonValue): string {
+function stableJsonHash(value: unknown): string {
   return sha256Text(JSON.stringify(normalizeForStableHash(value)) ?? "null");
 }
 
@@ -796,8 +803,13 @@ export function hasCodexWorkspaceMemoryTools(tools: readonly { name: string }[])
   return getCodexWorkspaceMemoryToolNames(tools).length > 0;
 }
 
-export function getCodexWorkspaceMemoryToolNames(tools: readonly { name: string }[]): string[] {
-  const availableToolNames = new Set(tools.map((tool) => normalizeCodexDynamicToolName(tool.name)));
+export function getCodexWorkspaceMemoryToolNames(tools: readonly { name?: unknown }[]): string[] {
+  const availableToolNames = new Set(
+    tools
+      .map((tool) => readCodexToolReportString(tool, "name"))
+      .filter(isNonEmptyString)
+      .map(normalizeCodexDynamicToolName),
+  );
   return Array.from(CODEX_MEMORY_TOOL_NAMES).filter((name) => availableToolNames.has(name));
 }
 
@@ -932,6 +944,11 @@ function getCodexContextFileBasename(filePath: string): string {
 
 function normalizeCodexDynamicToolName(name: string): string {
   return name.trim().toLowerCase();
+}
+
+function readCodexToolReportString(tool: object, key: "name" | "description"): string | undefined {
+  const value = readValue(tool, key);
+  return typeof value === "string" ? value : undefined;
 }
 
 function isNonEmptyString(value: unknown): value is string {

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCodexWorkspaceBootstrapContext,
   buildCodexSystemPromptReport,
+  getCodexWorkspaceMemoryToolNames,
   readContextEngineThreadBootstrapProjection,
   remapCodexContextFilePath,
   resolveContextEngineBootstrapProjectionDecision,
@@ -160,6 +161,77 @@ describe("Codex app-server attempt context", () => {
       schemaChars: 0,
     });
     expect(report.tools.entries[0]?.schemaHash).toMatch(/^[a-f0-9]{64}$/u);
+  });
+
+  it("skips unreadable synthetic Codex dynamic tool names in prompt reports", () => {
+    const unreadableNameTool = {
+      description: "Synthetic report tool",
+      inputSchema: { type: "object", properties: {} },
+    };
+    defineThrowingProperty(
+      unreadableNameTool,
+      "name",
+      "fuzzplugin prompt report tool name read failed",
+    );
+    const unreadableDescriptionTool = {
+      name: "fuzz_move_report_name",
+      inputSchema: { type: "object", properties: {} },
+    };
+    defineThrowingProperty(
+      unreadableDescriptionTool,
+      "description",
+      "mockplugin prompt report tool description read failed",
+    );
+
+    const report = buildCodexSystemPromptReport({
+      attempt: {
+        sessionId: "session-1",
+        provider: "codex",
+        modelId: "gpt-5.4-codex",
+      } as EmbeddedRunAttemptParams,
+      sessionKey: "agent:main:session-1",
+      workspaceDir: path.join("tmp", "workspace"),
+      developerInstructions: "test developer instructions",
+      workspaceBootstrapContext: {
+        bootstrapFiles: [],
+        contextFiles: [],
+        promptContextFiles: [],
+        developerInstructionFiles: [],
+        heartbeatReferenceFiles: [],
+      },
+      skillsPrompt: "",
+      tools: [
+        unreadableNameTool,
+        unreadableDescriptionTool,
+        {
+          name: "message",
+          description: "Healthy tool",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ] as never,
+    });
+
+    expect(report.tools.entries.map((tool) => tool.name)).toEqual([
+      "fuzz_move_report_name",
+      "message",
+    ]);
+    expect(report.tools.entries[0]).toMatchObject({
+      name: "fuzz_move_report_name",
+      summaryChars: 0,
+    });
+  });
+
+  it("skips unreadable synthetic Codex dynamic tool names in memory tool routing", () => {
+    const unreadableNameTool = {};
+    defineThrowingProperty(unreadableNameTool, "name", "fuzzplugin memory tool name read failed");
+
+    expect(
+      getCodexWorkspaceMemoryToolNames([
+        unreadableNameTool,
+        { name: " memory_search " },
+        { name: "message" },
+      ] as never),
+    ).toEqual(["memory_search"]);
   });
 
   it("remaps Codex bootstrap files under dot-prefixed workspace directories", () => {
