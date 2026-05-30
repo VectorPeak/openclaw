@@ -1179,6 +1179,52 @@ describe("acquireSessionWriteLock", () => {
     });
   });
 
+  it("preserves one acquire timeout budget after stale lock retries", async () => {
+    if (process.platform !== "linux") {
+      return;
+    }
+    await withTempSessionLockFile(async ({ sessionFile, lockPath }) => {
+      let nowMs = 1_000;
+      const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+      const acquireTimeouts: number[] = [];
+      testing.setSessionLockAcquireForTest(async (_targetPath, options) => {
+        acquireTimeouts.push(options.timeoutMs ?? -1);
+        if (acquireTimeouts.length % 2 === 1) {
+          nowMs += 89;
+          throw Object.assign(new Error("stale"), {
+            code: "file_lock_stale",
+            lockPath,
+          });
+        }
+        throw Object.assign(new Error("timeout"), {
+          code: "file_lock_timeout",
+          lockPath,
+        });
+      });
+      try {
+        await expect(
+          acquireSessionWriteLock({
+            sessionFile,
+            timeoutMs: 90,
+            allowReentrant: false,
+          }),
+        ).rejects.toThrow(/session file locked/);
+
+        expect(acquireTimeouts).toEqual([90, 1]);
+        await expect(
+          acquireSessionWriteLock({
+            sessionFile,
+            timeoutMs: 90,
+            allowReentrant: false,
+          }),
+        ).rejects.toThrow(/session file locked/);
+        expect(acquireTimeouts).toEqual([90, 1, 90, 1]);
+      } finally {
+        dateNowSpy.mockRestore();
+      }
+    });
+  });
+
   it("reclaims orphan lock files without starttime when PID matches current process", async () => {
     await withTempSessionLockFile(async ({ sessionFile, lockPath }) => {
       // Simulate an old-format lock file left behind by a previous process

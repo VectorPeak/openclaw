@@ -3,7 +3,7 @@ import type fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { MAX_TIMER_TIMEOUT_MS } from "@openclaw/normalization-core/number-coercion";
-import { createFileLockManager } from "../infra/file-lock-manager.js";
+import { createFileLockManager, type FileLockManager } from "../infra/file-lock-manager.js";
 import { readGatewayProcessArgsSync as readProcessArgsSync } from "../infra/gateway-processes.js";
 import { getProcessStartTime, isPidAlive } from "../shared/pid-alive.js";
 import { SessionWriteLockTimeoutError } from "./session-write-lock-error.js";
@@ -77,8 +77,10 @@ type LockInspectionDetails = Pick<
   "pid" | "pidAlive" | "createdAt" | "ageMs" | "stale" | "staleReasons"
 >;
 
+type SessionLockAcquire = FileLockManager["acquire"];
 const SESSION_LOCKS = createFileLockManager("openclaw.session-write-lock");
 let resolveProcessStartTimeForLock = getProcessStartTime;
+let acquireSessionLockForTest: SessionLockAcquire | null = null;
 
 function isFileLockError(error: unknown, code: string): boolean {
   return (error as { code?: unknown } | null)?.code === code;
@@ -818,10 +820,24 @@ export async function acquireSessionWriteLock(params: {
   await fs.mkdir(sessionDir, { recursive: true });
 
   while (true) {
-    try {
-      const lock = await SESSION_LOCKS.acquire(sessionFile, {
-        staleMs,
+    const elapsedBeforeAcquireMs = Date.now() - startedAt;
+    const acquireTimeoutMs =
+      timeoutMs === Number.POSITIVE_INFINITY
+        ? timeoutMs
+        : Math.max(0, timeoutMs - elapsedBeforeAcquireMs);
+    if (acquireTimeoutMs <= 0) {
+      await throwSessionWriteLockTimeout({
         timeoutMs,
+        lockPath,
+      });
+    }
+
+    try {
+      const acquireSessionLock =
+        acquireSessionLockForTest ?? SESSION_LOCKS.acquire.bind(SESSION_LOCKS);
+      const lock = await acquireSessionLock(sessionFile, {
+        staleMs,
+        timeoutMs: acquireTimeoutMs,
         retry: { minTimeout: 50, maxTimeout: 1000, factor: 1 },
         staleRecovery: "remove-if-unchanged",
         allowReentrant,
@@ -915,6 +931,9 @@ export const testing = {
   setProcessStartTimeResolverForTest(resolver: ((pid: number) => number | null) | null): void {
     resolveProcessStartTimeForLock = resolver ?? getProcessStartTime;
   },
+  setSessionLockAcquireForTest(acquire: SessionLockAcquire | null): void {
+    acquireSessionLockForTest = acquire;
+  },
 };
 
 export async function drainSessionWriteLockStateForTest(): Promise<void> {
@@ -928,5 +947,6 @@ export function resetSessionWriteLockStateForTest(): void {
   stopWatchdogTimer();
   unregisterCleanupHandlers();
   resolveProcessStartTimeForLock = getProcessStartTime;
+  acquireSessionLockForTest = null;
 }
 export { testing as __testing };
