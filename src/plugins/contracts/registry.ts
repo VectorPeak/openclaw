@@ -390,12 +390,42 @@ function loadProviderContractRegistry(): ProviderContractEntry[] {
   }
 }
 
+function readProviderContractProviderId(provider: ProviderPlugin): string | undefined {
+  try {
+    const id = (provider as { id?: unknown }).id;
+    return typeof id === "string" && id ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readProviderContractStringList(
+  provider: ProviderPlugin,
+  key: "aliases" | "hookAliases",
+): string[] {
+  try {
+    const value = (provider as Record<string, unknown>)[key];
+    return Array.isArray(value) ? value.filter((entry) => typeof entry === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function dedupeProviderContractProviders(
+  entries: readonly ProviderContractEntry[],
+): ProviderPlugin[] {
+  const providers = new Map<string, ProviderPlugin>();
+  for (const entry of entries) {
+    const id = readProviderContractProviderId(entry.provider);
+    if (id && !providers.has(id)) {
+      providers.set(id, entry.provider);
+    }
+  }
+  return [...providers.values()];
+}
+
 function loadUniqueProviderContractProviders(): ProviderPlugin[] {
-  return [
-    ...new Map(
-      loadProviderContractRegistry().map((entry) => [entry.provider.id, entry.provider]),
-    ).values(),
-  ];
+  return dedupeProviderContractProviders(loadProviderContractRegistry());
 }
 
 function loadProviderContractPluginIds(): string[] {
@@ -669,11 +699,11 @@ export const providerContractCompatPluginIds: string[] = createLazyArrayView(
 export function requireProviderContractProvider(providerId: string): ProviderPlugin {
   const pluginIds = resolveBundledProviderContractPluginIdsByProviderId().get(providerId) ?? [];
   const entries = loadProviderContractEntriesForPluginIds(pluginIds);
-  const provider = entries.find((entry) => entry.provider.id === providerId)?.provider;
+  const provider = entries.find(
+    (entry) => readProviderContractProviderId(entry.provider) === providerId,
+  )?.provider;
   if (!provider) {
-    const pluginScopedProviders = [
-      ...new Map(entries.map((entry) => [entry.provider.id, entry.provider])).values(),
-    ];
+    const pluginScopedProviders = dedupeProviderContractProviders(entries);
     if (pluginIds.length === 1 && pluginScopedProviders.length === 1) {
       return pluginScopedProviders[0];
     }
@@ -705,10 +735,10 @@ export function resolveProviderContractPluginIdsForProviderAlias(
     loadProviderContractEntriesForPluginIds(resolveBundledProviderContractPluginIds())
       .filter((entry) => {
         const providerIds = [
-          entry.provider.id,
-          ...(entry.provider.aliases ?? []),
-          ...(entry.provider.hookAliases ?? []),
-        ];
+          readProviderContractProviderId(entry.provider),
+          ...readProviderContractStringList(entry.provider, "aliases"),
+          ...readProviderContractStringList(entry.provider, "hookAliases"),
+        ].filter((candidate): candidate is string => typeof candidate === "string");
         return providerIds.some(
           (candidate) => normalizeProviderId(candidate) === normalizedProvider,
         );
@@ -722,13 +752,11 @@ export function resolveProviderContractProvidersForPluginIds(
   pluginIds: readonly string[],
 ): ProviderPlugin[] {
   const allowed = new Set(pluginIds);
-  return [
-    ...new Map(
-      loadProviderContractEntriesForPluginIds([...allowed])
-        .filter((entry) => allowed.has(entry.pluginId))
-        .map((entry) => [entry.provider.id, entry.provider]),
-    ).values(),
-  ];
+  return dedupeProviderContractProviders(
+    loadProviderContractEntriesForPluginIds([...allowed]).filter((entry) =>
+      allowed.has(entry.pluginId),
+    ),
+  );
 }
 
 export const webSearchProviderContractRegistry: WebSearchProviderContractEntry[] =

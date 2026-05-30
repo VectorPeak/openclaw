@@ -40,6 +40,22 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function createUnreadableProviderId() {
+  return Object.defineProperty(
+    {
+      label: "Fuzz Plugin Provider",
+      docsPath: "/providers/fuzzplugin",
+      auth: [],
+    },
+    "id",
+    {
+      get() {
+        throw new Error("fuzzplugin provider contract id getter failed");
+      },
+    },
+  ) as ProviderPlugin;
+}
+
 describe("plugin contract registry scoped retries", () => {
   it("retries provider loads after a transient plugin-scoped runtime error", async () => {
     const loadBundledCapabilityRuntimeRegistry = vi
@@ -257,6 +273,52 @@ describe("plugin contract registry scoped retries", () => {
     ).toEqual(["openai", "openai-codex"]);
     expect(resolveBundledExplicitProviderContractsFromPublicArtifacts).toHaveBeenCalledTimes(1);
     expect(loadBundledCapabilityRuntimeRegistry).not.toHaveBeenCalled();
+  });
+
+  it("skips unreadable provider contract ids while preserving healthy providers", async () => {
+    const loadBundledCapabilityRuntimeRegistry = vi.fn().mockReturnValue(
+      createMockRuntimeRegistry({
+        plugin: {
+          id: "mockplugin-provider",
+          status: "loaded",
+          providerIds: ["mockplugin-provider"],
+          webFetchProviderIds: [],
+          webSearchProviderIds: [],
+          migrationProviderIds: [],
+        },
+        providers: [
+          {
+            pluginId: "mockplugin-provider",
+            provider: createUnreadableProviderId(),
+          },
+          {
+            pluginId: "mockplugin-provider",
+            provider: {
+              id: "mockplugin-provider",
+              label: "Mock Plugin Provider",
+              docsPath: "/providers/mockplugin",
+              auth: [],
+            } as ProviderPlugin,
+          },
+        ],
+      }),
+    );
+
+    vi.doMock("../bundled-capability-runtime.js", () => ({
+      loadBundledCapabilityRuntimeRegistry,
+    }));
+    vi.doMock("../provider-contract-public-artifacts.js", () => ({
+      resolveBundledExplicitProviderContractsFromPublicArtifacts: () => null,
+    }));
+
+    const { resolveProviderContractProvidersForPluginIds } = await import("./registry.js");
+
+    expect(
+      resolveProviderContractProvidersForPluginIds(["mockplugin-provider"]).map(
+        (provider) => provider.id,
+      ),
+    ).toEqual(["mockplugin-provider"]);
+    expect(loadBundledCapabilityRuntimeRegistry).toHaveBeenCalledTimes(1);
   });
 
   it("uses web search public artifacts before falling back to the bundled runtime registry", async () => {
