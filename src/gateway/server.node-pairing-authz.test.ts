@@ -385,7 +385,7 @@ describe("gateway node pairing authorization", () => {
       }
     });
 
-    test("binds public stable-node approvals to the first verified device reconnect", async () => {
+    test("accepts public stable-node approvals when the request carries a verified device id", async () => {
       const pairedDevice = await pairDeviceIdentity({
         name: "node-public-stable-bind",
         role: "node",
@@ -396,6 +396,7 @@ describe("gateway node pairing authorization", () => {
       const stableNodeId = "stable-node-public-approval";
       const request = await requestNodePairing({
         nodeId: stableNodeId,
+        deviceId: pairedDevice.identity.deviceId,
         platform: "macos",
         deviceFamily: "Mac",
         commands: ["system.which"],

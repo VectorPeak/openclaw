@@ -40,7 +40,7 @@ describe("gateway/node-identity", () => {
     ]);
   });
 
-  it("accepts unbound stable node pairings for first device-authenticated reconnect", () => {
+  it("rejects unbound stable node pairings that only match client-supplied instance id", () => {
     expect(
       nodePairingMatchesConnectDevice({
         connect: makeConnect(),
@@ -53,7 +53,7 @@ describe("gateway/node-identity", () => {
           approvedAtMs: 1,
         },
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("accepts stable node pairings bound to the verified device id", () => {

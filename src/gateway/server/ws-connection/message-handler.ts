@@ -1603,20 +1603,6 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
               rejectedStablePairedNode = true;
             }
           }
-          if (pairedNode && !pairedNode.deviceId && device?.id && pairedNode.nodeId !== device.id) {
-            // Public node.pair.request callers could approve stable node ids before
-            // this record carried a device binding. Bind the first verified device,
-            // then future reconnects use the stricter device-id match above.
-            const bound = await updatePairedNodeMetadata(pairedNode.nodeId, {
-              deviceId: device.id,
-            });
-            if (bound) {
-              pairedNode = { ...pairedNode, deviceId: device.id };
-            } else {
-              pairedNode = null;
-              rejectedStablePairedNode = true;
-            }
-          }
           matchedPairedNode = pairedNode !== null;
           const reconciliation = await reconcileNodePairingOnConnect({
             cfg: getRuntimeConfig(),
