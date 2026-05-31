@@ -58,6 +58,9 @@ export async function detectPackageManager(root: string): Promise<DetectedPackag
   const files = await fs.readdir(root).catch((): string[] => []);
   const pm = (await readPackageManagerSpec(root))?.split("@")[0]?.trim();
   if (files.includes("npm-shrinkwrap.json") && !files.includes(".git")) {
+    if (isBunOwnedPackageRoot(root)) {
+      return "bun";
+    }
     if (
       pm === "pnpm" &&
       (files.includes("pnpm-lock.yaml") || (await isPnpmOwnedPackageRoot(root)))

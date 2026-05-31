@@ -140,31 +140,66 @@ describe("detectPackageManager", () => {
 
   it("preserves bun-owned package roots that also carry shrinkwrap", async () => {
     const previousBunInstall = process.env.BUN_INSTALL;
-    await withTempDir({ prefix: "openclaw-detect-pm-bun-" }, async (base) => {
-      process.env.BUN_INSTALL = path.join(base, ".bun");
-      const root = path.join(
-        process.env.BUN_INSTALL,
-        "install",
-        "global",
-        "node_modules",
-        "openclaw",
-      );
-      await fs.mkdir(root, { recursive: true });
-      await fs.writeFile(
-        path.join(root, "package.json"),
-        JSON.stringify({ packageManager: "bun@1.2.0" }),
-        "utf8",
-      );
-      await fs.writeFile(path.join(root, "npm-shrinkwrap.json"), "", "utf8");
+    try {
+      await withTempDir({ prefix: "openclaw-detect-pm-bun-" }, async (base) => {
+        process.env.BUN_INSTALL = path.join(base, ".bun");
+        const root = path.join(
+          process.env.BUN_INSTALL,
+          "install",
+          "global",
+          "node_modules",
+          "openclaw",
+        );
+        await fs.mkdir(root, { recursive: true });
+        await fs.writeFile(
+          path.join(root, "package.json"),
+          JSON.stringify({ packageManager: "bun@1.2.0" }),
+          "utf8",
+        );
+        await fs.writeFile(path.join(root, "npm-shrinkwrap.json"), "", "utf8");
 
-      await expect(detectPackageManager(root)).resolves.toBe("bun");
-    });
-    if (previousBunInstall === undefined) {
-      delete process.env.BUN_INSTALL;
-    } else {
-      process.env.BUN_INSTALL = previousBunInstall;
+        await expect(detectPackageManager(root)).resolves.toBe("bun");
+      });
+    } finally {
+      if (previousBunInstall === undefined) {
+        delete process.env.BUN_INSTALL;
+      } else {
+        process.env.BUN_INSTALL = previousBunInstall;
+      }
     }
   });
+
+  it("preserves bun-owned package roots with published pnpm metadata", async () => {
+    const previousBunInstall = process.env.BUN_INSTALL;
+    try {
+      await withTempDir({ prefix: "openclaw-detect-pm-bun-published-" }, async (base) => {
+        process.env.BUN_INSTALL = path.join(base, ".bun");
+        const root = path.join(
+          process.env.BUN_INSTALL,
+          "install",
+          "global",
+          "node_modules",
+          "openclaw",
+        );
+        await fs.mkdir(root, { recursive: true });
+        await fs.writeFile(
+          path.join(root, "package.json"),
+          JSON.stringify({ packageManager: "pnpm@10.8.1" }),
+          "utf8",
+        );
+        await fs.writeFile(path.join(root, "npm-shrinkwrap.json"), "", "utf8");
+
+        await expect(detectPackageManager(root)).resolves.toBe("bun");
+      });
+    } finally {
+      if (previousBunInstall === undefined) {
+        delete process.env.BUN_INSTALL;
+      } else {
+        process.env.BUN_INSTALL = previousBunInstall;
+      }
+    }
+  });
+
   it("keeps packageManager precedence for git roots that also carry shrinkwrap", async () => {
     await withPackageManagerRoot(
       [
