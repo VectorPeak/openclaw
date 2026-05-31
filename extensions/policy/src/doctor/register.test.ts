@@ -781,6 +781,57 @@ describe("registerPolicyDoctorChecks", () => {
     );
   });
 
+  it("does not satisfy required feed sources from an inactive Feeds plugin", async () => {
+    const configPath = join(workspaceDir, "openclaw.jsonc");
+    await fs.writeFile(configPath, "{}", "utf-8");
+    await fs.writeFile(
+      join(workspaceDir, "policy.jsonc"),
+      JSON.stringify({
+        feeds: {
+          sources: {
+            require: ["company-approved"],
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    const result = await runPolicyChecks(
+      ctx(configPath, {
+        ...cfgWithPolicy(),
+        plugins: {
+          entries: {
+            policy: {
+              enabled: true,
+              config: { enabled: true },
+            },
+            feeds: {
+              config: {
+                sources: [
+                  {
+                    id: "company-approved",
+                    url: "https://feeds.example.com/company.json",
+                    trust: "pinned",
+                    integrity:
+                      "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                  },
+                ],
+              },
+            },
+          },
+        },
+      }),
+    );
+
+    expect(result.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          checkId: "policy/feeds-required-source-missing",
+        }),
+      ]),
+    );
+  });
+
   it("does not satisfy required feed sources from a disabled Feeds plugin", async () => {
     const configPath = join(workspaceDir, "openclaw.jsonc");
     await fs.writeFile(configPath, "{}", "utf-8");

@@ -857,6 +857,7 @@ export function scanPolicyFeeds(cfg: Record<string, unknown>): readonly PolicyFe
     plugins.enabled === false ||
     feeds.enabled === false ||
     config.enabled === false ||
+    (feeds.enabled !== true && config.enabled !== true) ||
     deny.includes("feeds") ||
     (allow.length > 0 && !allow.includes("feeds"))
   ) {
