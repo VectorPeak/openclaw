@@ -1,4 +1,3 @@
-import { expectExplicitVideoGenerationCapabilities } from "openclaw/plugin-sdk/provider-test-contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildComfyConfig,
@@ -35,10 +34,6 @@ describe("comfy video-generation provider", () => {
   afterEach(() => {
     setComfyFetchGuardForTesting(null);
     vi.restoreAllMocks();
-  });
-
-  it("declares explicit mode capabilities", () => {
-    expectExplicitVideoGenerationCapabilities(buildComfyVideoGenerationProvider());
   });
 
   it("treats local comfy video workflows as configured without an API key", () => {

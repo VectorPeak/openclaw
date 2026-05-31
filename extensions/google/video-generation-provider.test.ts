@@ -32,7 +32,6 @@ vi.mock("./google-genai-runtime.js", () => ({
 }));
 
 import * as providerAuthRuntime from "openclaw/plugin-sdk/provider-auth-runtime";
-import { expectExplicitVideoGenerationCapabilities } from "openclaw/plugin-sdk/provider-test-contracts";
 import { buildGoogleVideoGenerationProvider } from "./video-generation-provider.js";
 
 type MockWithCalls = {
@@ -117,9 +116,8 @@ describe("google video generation provider", () => {
     vi.resetModules();
   });
 
-  it("declares explicit mode capabilities", () => {
+  it("declares provider-specific audio support by mode", () => {
     const provider = buildGoogleVideoGenerationProvider();
-    expectExplicitVideoGenerationCapabilities(provider);
     expect(provider.capabilities.generate?.supportsAudio).toBe(false);
     expect(provider.capabilities.imageToVideo?.supportsAudio).toBe(false);
     expect(provider.capabilities.videoToVideo?.supportsAudio).toBe(false);

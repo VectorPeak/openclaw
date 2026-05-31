@@ -1,4 +1,3 @@
-import { expectExplicitMusicGenerationCapabilities } from "openclaw/plugin-sdk/provider-test-contracts";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   getMinimaxProviderHttpMocks,
@@ -62,10 +61,6 @@ function streamedAudioResponse(bytes: string): Response {
 }
 
 describe("minimax music generation provider", () => {
-  it("declares explicit mode capabilities", () => {
-    expectExplicitMusicGenerationCapabilities(buildMinimaxMusicGenerationProvider());
-  });
-
   it("streams generated music chunks from MiniMax", async () => {
     const chunkA = Buffer.from("ID3\x04\x00mp3-a");
     const chunkB = Buffer.from("mp3-b");

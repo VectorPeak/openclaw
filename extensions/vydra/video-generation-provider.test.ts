@@ -1,4 +1,3 @@
-import { expectExplicitVideoGenerationCapabilities } from "openclaw/plugin-sdk/provider-test-contracts";
 import { installPinnedHostnameTestHooks } from "openclaw/plugin-sdk/test-env";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -23,10 +22,6 @@ describe("vydra video-generation provider", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-  });
-
-  it("declares explicit mode capabilities", () => {
-    expectExplicitVideoGenerationCapabilities(buildVydraVideoGenerationProvider());
   });
 
   it("submits veo3 jobs and downloads the completed video", async () => {

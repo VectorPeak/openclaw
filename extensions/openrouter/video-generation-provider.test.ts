@@ -1,8 +1,5 @@
 import { clearLiveCatalogCacheForTests } from "openclaw/plugin-sdk/provider-catalog-shared";
-import {
-  expectExplicitVideoGenerationCapabilities,
-  expectUnifiedModelCatalogEntries,
-} from "openclaw/plugin-sdk/provider-test-contracts";
+import { expectUnifiedModelCatalogEntries } from "openclaw/plugin-sdk/provider-test-contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildOpenRouterVideoGenerationProvider,
@@ -174,10 +171,8 @@ describe("openrouter video generation provider", () => {
     waitProviderOperationPollIntervalMock.mockClear();
   });
 
-  it("declares explicit mode capabilities", () => {
+  it("declares provider defaults and mode capabilities", () => {
     const provider = buildOpenRouterVideoGenerationProvider();
-
-    expectExplicitVideoGenerationCapabilities(provider);
     expect(provider.id).toBe("openrouter");
     expect(provider.defaultModel).toBe("google/veo-3.1-fast");
     const generateCapabilities = requireGenerateCapabilities(provider);

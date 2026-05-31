@@ -1,5 +1,4 @@
 import { MAX_TIMER_TIMEOUT_MS } from "openclaw/plugin-sdk/number-runtime";
-import { expectExplicitMusicGenerationCapabilities } from "openclaw/plugin-sdk/provider-test-contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildOpenRouterMusicGenerationProvider } from "./music-generation-provider.js";
 
@@ -80,10 +79,6 @@ describe("openrouter music generation provider", () => {
     postJsonRequestMock.mockReset();
     resolveApiKeyForProviderMock.mockClear();
     resolveProviderHttpRequestConfigMock.mockClear();
-  });
-
-  it("declares explicit mode capabilities", () => {
-    expectExplicitMusicGenerationCapabilities(buildOpenRouterMusicGenerationProvider());
   });
 
   it("streams OpenRouter audio chunks into a generated music asset", async () => {

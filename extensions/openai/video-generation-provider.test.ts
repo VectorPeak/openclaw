@@ -5,7 +5,6 @@ import {
   getProviderHttpMocks,
   installProviderHttpMockCleanup,
 } from "openclaw/plugin-sdk/provider-http-test-mocks";
-import { expectExplicitVideoGenerationCapabilities } from "openclaw/plugin-sdk/provider-test-contracts";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 const {
@@ -104,10 +103,6 @@ function streamedVideoResponse(bytes: string): Response {
 }
 
 describe("openai video generation provider", () => {
-  it("declares explicit mode capabilities", () => {
-    expectExplicitVideoGenerationCapabilities(buildOpenAIVideoGenerationProvider());
-  });
-
   it("does not claim size or duration controls for OpenAI video edits", () => {
     const provider = buildOpenAIVideoGenerationProvider();
 

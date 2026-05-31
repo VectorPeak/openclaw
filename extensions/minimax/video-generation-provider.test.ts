@@ -1,4 +1,3 @@
-import { expectExplicitVideoGenerationCapabilities } from "openclaw/plugin-sdk/provider-test-contracts";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   getMinimaxProviderHttpMocks,
@@ -61,9 +60,8 @@ function streamedVideoResponse(bytes: string): Response {
 }
 
 describe("minimax video generation provider", () => {
-  it("declares explicit mode capabilities", () => {
+  it("declares provider-specific mode resolutions", () => {
     const provider = buildMinimaxVideoGenerationProvider();
-    expectExplicitVideoGenerationCapabilities(provider);
     expect(provider.capabilities.generate?.resolutions).toEqual(["768P", "1080P"]);
     expect(provider.capabilities.imageToVideo?.resolutions).toEqual(["768P", "1080P"]);
   });

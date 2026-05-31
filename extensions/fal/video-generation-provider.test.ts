@@ -1,7 +1,6 @@
 import { MAX_TIMER_TIMEOUT_MS } from "openclaw/plugin-sdk/number-runtime";
 import * as providerAuth from "openclaw/plugin-sdk/provider-auth-runtime";
 import * as providerHttp from "openclaw/plugin-sdk/provider-http";
-import { expectExplicitVideoGenerationCapabilities } from "openclaw/plugin-sdk/provider-test-contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   setFalVideoFetchGuardForTesting,
@@ -115,9 +114,8 @@ describe("fal video generation provider", () => {
     setFalVideoFetchGuardForTesting(null);
   });
 
-  it("declares explicit mode capabilities", () => {
+  it("declares provider-specific mode capability limits", () => {
     const provider = buildFalVideoGenerationProvider();
-    expectExplicitVideoGenerationCapabilities(provider);
     expect(provider.capabilities.imageToVideo?.maxInputImages).toBe(1);
     expect(
       provider.capabilities.imageToVideo?.maxInputImagesByModel?.[

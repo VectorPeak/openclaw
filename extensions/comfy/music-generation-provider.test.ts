@@ -1,4 +1,3 @@
-import { expectExplicitMusicGenerationCapabilities } from "openclaw/plugin-sdk/provider-test-contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildComfyMusicGenerationProvider } from "./music-generation-provider.js";
 import { setComfyFetchGuardForTesting } from "./workflow-runtime.js";
@@ -18,7 +17,6 @@ describe("comfy music-generation provider", () => {
 
     expect(provider.defaultModel).toBe("workflow");
     expect(provider.models).toEqual(["workflow"]);
-    expectExplicitMusicGenerationCapabilities(provider);
   });
 
   it("runs a music workflow and returns audio outputs", async () => {

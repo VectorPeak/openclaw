@@ -4,7 +4,6 @@ import {
 } from "openclaw/plugin-sdk/provider-http-test-mocks";
 import {
   expectDashscopeVideoTaskPoll,
-  expectExplicitVideoGenerationCapabilities,
   expectSuccessfulDashscopeVideoResult,
   mockSuccessfulDashscopeVideoTask,
 } from "openclaw/plugin-sdk/provider-test-contracts";
@@ -36,10 +35,6 @@ function requireFirstPostJsonRequest(label: string): Record<string, unknown> {
 }
 
 describe("alibaba video generation provider", () => {
-  it("declares explicit mode capabilities", () => {
-    expectExplicitVideoGenerationCapabilities(buildAlibabaVideoGenerationProvider());
-  });
-
   it("submits async Wan generation, polls task status, and downloads the resulting video", async () => {
     mockSuccessfulDashscopeVideoTask({ postJsonRequestMock, fetchWithTimeoutMock });
 

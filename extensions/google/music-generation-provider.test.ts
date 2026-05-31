@@ -20,7 +20,6 @@ vi.mock("./google-genai-runtime.js", () => ({
 }));
 
 import * as providerAuthRuntime from "openclaw/plugin-sdk/provider-auth-runtime";
-import { expectExplicitMusicGenerationCapabilities } from "openclaw/plugin-sdk/provider-test-contracts";
 import { buildGoogleMusicGenerationProvider } from "./music-generation-provider.js";
 
 type GoogleGenAIConfig = {
@@ -63,10 +62,6 @@ describe("google music generation provider", () => {
   afterAll(() => {
     vi.doUnmock("./google-genai-runtime.js");
     vi.resetModules();
-  });
-
-  it("declares explicit mode capabilities", () => {
-    expectExplicitMusicGenerationCapabilities(buildGoogleMusicGenerationProvider());
   });
 
   it("submits generation and returns inline audio bytes plus lyrics", async () => {

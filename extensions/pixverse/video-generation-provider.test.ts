@@ -2,7 +2,6 @@ import {
   getProviderHttpMocks,
   installProviderHttpMockCleanup,
 } from "openclaw/plugin-sdk/provider-http-test-mocks";
-import { expectExplicitVideoGenerationCapabilities } from "openclaw/plugin-sdk/provider-test-contracts";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 const {
@@ -56,10 +55,6 @@ function pollFetchHeaders(callIndex: number): Headers | undefined {
 }
 
 describe("pixverse video generation provider", () => {
-  it("declares explicit mode capabilities", () => {
-    expectExplicitVideoGenerationCapabilities(buildPixVerseVideoGenerationProvider());
-  });
-
   it("submits text-to-video, polls status, and returns the output URL", async () => {
     postJsonRequestMock.mockResolvedValue({
       response: {

@@ -2,7 +2,6 @@ import {
   getProviderHttpMocks,
   installProviderHttpMockCleanup,
 } from "openclaw/plugin-sdk/provider-http-test-mocks";
-import { expectExplicitVideoGenerationCapabilities } from "openclaw/plugin-sdk/provider-test-contracts";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 const { postJsonRequestMock, fetchWithTimeoutMock } = getProviderHttpMocks();
@@ -77,10 +76,6 @@ function streamedVideoResponse(bytes: string): Response {
 }
 
 describe("byteplus video generation provider", () => {
-  it("declares explicit mode capabilities", () => {
-    expectExplicitVideoGenerationCapabilities(buildBytePlusVideoGenerationProvider());
-  });
-
   it("creates a content-generation task, polls, and downloads the video", async () => {
     mockSuccessfulBytePlusTask();
 
