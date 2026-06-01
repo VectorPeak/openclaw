@@ -1,8 +1,3 @@
-/**
- * Voice call response generator - uses the embedded OpenClaw agent for tool support.
- * Routes voice responses through the same agent infrastructure as messaging.
- */
-
 import crypto from "node:crypto";
 import { applyModelOverrideToSessionEntry } from "openclaw/plugin-sdk/model-session-runtime";
 import {
@@ -176,6 +171,8 @@ function extractSpokenTextFromPayloads(payloads: VoiceResponsePayload[]): string
   const spokenSegments: string[] = [];
 
   for (const payload of payloads) {
+    // Voice payloads can interleave hidden reasoning/tool errors with user-facing
+    // text; only speak explicit non-error output.
     if (payload.isError || payload.isReasoning) {
       continue;
     }
@@ -212,10 +209,7 @@ function resolveVoiceSandboxSessionKey(agentId: string, sessionKey: string): str
   return `agent:${agentId}:${trimmed}`;
 }
 
-/**
- * Generate a voice response using the embedded OpenClaw agent with full tool support.
- * Uses the same agent infrastructure as messaging for consistent behavior.
- */
+/** Generates a spoken voice response through the embedded OpenClaw agent runtime. */
 export async function generateVoiceResponse(
   params: VoiceResponseParams,
 ): Promise<VoiceResponseResult> {
@@ -244,22 +238,18 @@ export async function generateVoiceResponse(
   const agentId = voiceConfig.agentId ?? "main";
   const toolsAllow = resolveVoiceAgentToolsAllow(cfg, agentId);
 
-  // Resolve paths
   const storePath = agentRuntime.session.resolveStorePath(cfg.session?.store, { agentId });
   const agentDir = agentRuntime.resolveAgentDir(cfg, agentId);
   const workspaceDir = agentRuntime.resolveAgentWorkspaceDir(cfg, agentId);
 
-  // Ensure workspace exists
   await agentRuntime.ensureAgentWorkspace({ dir: workspaceDir });
 
-  // Load or create session entry
   const now = Date.now();
   const existingSessionEntry = agentRuntime.session.getSessionEntry({
     storePath,
     sessionKey: resolvedSessionKey,
   });
 
-  // Resolve model from config
   const { provider, model } = resolveVoiceResponseModel({ voiceConfig, agentRuntime });
 
   let sessionEntry = existingSessionEntry;
@@ -303,14 +293,11 @@ export async function generateVoiceResponse(
     agentId,
   });
 
-  // Resolve thinking level
   const thinkLevel = agentRuntime.resolveThinkingDefault({ cfg, provider, model });
 
-  // Resolve agent identity for personalized prompt
   const identity = agentRuntime.resolveAgentIdentity(cfg, agentId);
   const agentName = identity?.name?.trim() || "assistant";
 
-  // Build system prompt with conversation history
   const basePrompt =
     voiceConfig.responseSystemPrompt ??
     `You are ${agentName}, a helpful voice assistant on a phone call. Keep responses brief and conversational (1-2 sentences max). Be natural and friendly. The caller's phone number is ${from}. You have access to tools - use them when helpful.`;
@@ -322,9 +309,10 @@ export async function generateVoiceResponse(
       .join("\n");
     extraSystemPrompt = `${basePrompt}\n\nConversation so far:\n${history}`;
   }
+  // The embedded agent may stream through the normal text channel, so the system
+  // prompt carries a strict JSON spoken-output contract before payload parsing.
   extraSystemPrompt = `${extraSystemPrompt}\n\n${VOICE_SPOKEN_OUTPUT_CONTRACT}`;
 
-  // Resolve timeout
   const timeoutMs = voiceConfig.responseTimeoutMs ?? agentRuntime.resolveAgentTimeoutMs({ cfg });
   const runId = `voice:${callId}:${Date.now()}`;
 
