@@ -491,6 +491,8 @@ async function closeAcpRuntimeForSession(params: {
   );
   let acpMeta: SessionAcpMeta | undefined;
   let acpSessionKey = params.sessionKey;
+  // ACP metadata may still be stored under a legacy/requested key while the
+  // mutation target has already canonicalized to a new store key.
   for (const sessionKey of sessionKeys) {
     acpMeta = readAcpSessionMeta({ sessionKey });
     if (acpMeta) {
@@ -602,6 +604,8 @@ async function ensureFreshAcpResetState(params: {
     readAcpSessionMeta({
       sessionKey: params.sessionKey,
     }) ?? params.acpMeta;
+  // Only resolved runtime identities need a fresh pending handoff; sessions
+  // without a backend identity can be reset by clearing normal Gateway state.
   if (
     !latestMeta?.identity ||
     latestMeta.identity.state !== "resolved" ||
@@ -798,6 +802,8 @@ export async function performGatewaySessionReset(params: {
       resolveSessionStoreKey({ cfg, sessionKey: params.key }) === "global"
         ? normalizeAgentId(parsedKey.agentId)
         : undefined;
+    // A key like agent:ops:global targets the shared global row but still names
+    // the agent whose workspace/defaults should own the reset.
     const requestedAgentId = explicitAgentId ?? inferredGlobalAgentId;
     if (requestedAgentId && !listAgentIds(cfg).includes(requestedAgentId)) {
       return {
