@@ -670,6 +670,7 @@ function sanitizeExecApprovalPolicy(
   };
 }
 
+/** Normalizes persisted exec approval config without creating files or socket credentials. */
 export function normalizeExecApprovals(file: ExecApprovalsFile): ExecApprovalsFile {
   const socketPath = file.socket?.path?.trim();
   const token = file.socket?.token?.trim();
@@ -715,6 +716,7 @@ export function normalizeExecApprovals(file: ExecApprovalsFile): ExecApprovalsFi
   return normalized;
 }
 
+/** Applies existing or default socket credentials after config normalization. */
 export function mergeExecApprovalsSocketDefaults(params: {
   normalized: ExecApprovalsFile;
   current?: ExecApprovalsFile;
@@ -737,6 +739,7 @@ function generateToken(): string {
   return crypto.randomBytes(24).toString("base64url");
 }
 
+/** Reads the raw approvals file plus normalized content for temporary restore flows. */
 export function readExecApprovalsSnapshot(): ExecApprovalsSnapshot {
   const filePath = resolveExecApprovalsPath();
   if (!fs.existsSync(filePath)) {
@@ -769,6 +772,7 @@ export function readExecApprovalsSnapshot(): ExecApprovalsSnapshot {
   };
 }
 
+/** Loads persisted approvals defensively, returning an empty normalized file on absence or parse failure. */
 export function loadExecApprovals(): ExecApprovalsFile {
   const filePath = resolveExecApprovalsPath();
   try {
@@ -786,6 +790,7 @@ export function loadExecApprovals(): ExecApprovalsFile {
   }
 }
 
+/** Atomically writes the approvals file with restricted permissions where the platform supports them. */
 export function saveExecApprovals(file: ExecApprovalsFile) {
   const filePath = resolveExecApprovalsPath();
   const raw = `${JSON.stringify(file, null, 2)}\n`;
@@ -818,6 +823,7 @@ function writeExecApprovalsRaw(filePath: string, raw: string) {
   }
 }
 
+/** Restores or removes the approvals file using a snapshot captured before a temporary mutation. */
 export function restoreExecApprovalsSnapshot(snapshot: ExecApprovalsSnapshot): void {
   if (!snapshot.exists) {
     fs.rmSync(snapshot.path, { force: true });
@@ -830,6 +836,7 @@ export function restoreExecApprovalsSnapshot(snapshot: ExecApprovalsSnapshot): v
   saveExecApprovals(snapshot.file);
 }
 
+/** Ensures the approvals file exists with socket path and token credentials populated. */
 export function ensureExecApprovals(): ExecApprovalsFile {
   const loaded = loadExecApprovals();
   const next = normalizeExecApprovals(loaded);
@@ -1006,6 +1013,7 @@ export type ExecApprovalsDefaultOverrides = {
   requireSocket?: boolean;
 };
 
+/** Resolves effective approval policy for an agent, creating socket credentials only when needed. */
 export function resolveExecApprovals(
   agentId?: string,
   overrides?: ExecApprovalsDefaultOverrides,
@@ -1040,6 +1048,7 @@ export function resolveExecApprovals(
   });
 }
 
+/** Resolves effective agent approval settings from a supplied normalized-or-raw config file. */
 export function resolveExecApprovalsFromFile(params: {
   file: ExecApprovalsFile;
   agentId?: string;
