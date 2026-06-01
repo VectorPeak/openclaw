@@ -60,7 +60,6 @@ export async function runPluginUpdateCommand(params: {
     config: cfgWithPluginInstallRecords,
     pluginIds: pluginSelection.pluginIds,
     specOverrides: pluginSelection.specOverrides,
-    syncOfficialPluginInstalls: true,
     dryRun: params.opts.dryRun,
     dangerouslyForceUnsafeInstall: params.opts.dangerouslyForceUnsafeInstall,
     logger,

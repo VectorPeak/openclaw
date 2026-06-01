@@ -1530,6 +1530,97 @@ describe("updateNpmInstalledPlugins", () => {
     });
   });
 
+  it("preserves exact official npm pins when official install sync is not requested", async () => {
+    const installPath = createInstalledPackageDir({
+      name: "@openclaw/codex",
+      version: "2026.5.28",
+    });
+    installPluginFromNpmSpecMock.mockResolvedValue(
+      createSuccessfulNpmUpdateResult({
+        pluginId: "codex",
+        targetDir: installPath,
+        version: "2026.5.28",
+        npmResolution: {
+          name: "@openclaw/codex",
+          version: "2026.5.28",
+          resolvedSpec: "@openclaw/codex@2026.5.28",
+        },
+      }),
+    );
+
+    const result = await updateNpmInstalledPlugins({
+      config: createNpmInstallConfig({
+        pluginId: "codex",
+        spec: "@openclaw/codex@2026.5.28",
+        installPath,
+        resolvedName: "@openclaw/codex",
+        resolvedSpec: "@openclaw/codex@2026.5.28",
+        resolvedVersion: "2026.5.28",
+      }),
+      pluginIds: ["codex"],
+      dryRun: true,
+    });
+
+    expect(npmInstallCall()?.spec).toBe("@openclaw/codex@2026.5.28");
+    expect(npmInstallCall()?.expectedPluginId).toBe("codex");
+    expect(npmInstallCall()?.trustedSourceLinkedOfficialInstall).toBe(true);
+    expect(result.changed).toBe(false);
+    expectRecordFields(result.outcomes[0], {
+      pluginId: "codex",
+      status: "unchanged",
+      currentVersion: "2026.5.28",
+      nextVersion: "2026.5.28",
+    });
+  });
+
+  it("reinstalls missing exact official npm pins without official install sync", async () => {
+    const extensionsDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-missing-plugin-"));
+    tempDirs.push(extensionsDir);
+    const installPath = path.join(extensionsDir, "codex");
+    installPluginFromNpmSpecMock.mockResolvedValue(
+      createSuccessfulNpmUpdateResult({
+        pluginId: "codex",
+        targetDir: installPath,
+        version: "2026.5.28",
+        npmResolution: {
+          name: "@openclaw/codex",
+          version: "2026.5.28",
+          resolvedSpec: "@openclaw/codex@2026.5.28",
+        },
+      }),
+    );
+
+    const result = await updateNpmInstalledPlugins({
+      config: createNpmInstallConfig({
+        pluginId: "codex",
+        spec: "@openclaw/codex@2026.5.28",
+        installPath,
+        resolvedName: "@openclaw/codex",
+        resolvedSpec: "@openclaw/codex@2026.5.28",
+        resolvedVersion: "2026.5.28",
+      }),
+      pluginIds: ["codex"],
+    });
+
+    expect(npmInstallCall()?.spec).toBe("@openclaw/codex@2026.5.28");
+    expect(npmInstallCall()?.extensionsDir).toBe(extensionsDir);
+    expect(runCommandWithTimeoutMock).not.toHaveBeenCalled();
+    expectRecordFields(result.config.plugins?.installs?.codex, {
+      source: "npm",
+      spec: "@openclaw/codex@2026.5.28",
+      installPath,
+      version: "2026.5.28",
+      resolvedName: "@openclaw/codex",
+      resolvedSpec: "@openclaw/codex@2026.5.28",
+      resolvedVersion: "2026.5.28",
+    });
+    expectRecordFields(result.outcomes[0], {
+      pluginId: "codex",
+      status: "updated",
+      nextVersion: "2026.5.28",
+    });
+  });
+
   it("keeps third-party exact pinned npm specs pinned during official install sync", async () => {
     const installPath = createInstalledPackageDir({
       name: "@acme/demo",
