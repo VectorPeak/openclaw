@@ -20,52 +20,82 @@ export {
 } from "../utils/reaction-level.js";
 
 type RuntimeLifecycleSnapshot = {
+  /** Whether the account runtime is actively running. */
   running?: boolean | null;
+  /** Whether the underlying transport reports a live connection. */
   connected?: boolean | null;
+  /** Whether restart is queued or currently pending. */
   restartPending?: boolean | null;
+  /** Number of reconnect attempts reported by the runtime. */
   reconnectAttempts?: number | null;
+  /** Timestamp when the transport last connected. */
   lastConnectedAt?: number | null;
+  /** Last disconnect reason or structured disconnect metadata. */
   lastDisconnect?:
     | string
     | {
+        /** Disconnect timestamp. */
         at: number;
+        /** Optional protocol/status code for the disconnect. */
         status?: number;
+        /** Optional human-readable disconnect error. */
         error?: string;
+        /** True when the disconnect represents an account logout. */
         loggedOut?: boolean;
       }
     | null;
+  /** Timestamp for the last runtime event received. */
   lastEventAt?: number | null;
+  /** Timestamp for the last transport-level activity. */
   lastTransportActivityAt?: number | null;
+  /** Optional runtime-specific health state. */
   healthState?: string | null;
+  /** Timestamp when runtime start last began/succeeded. */
   lastStartAt?: number | null;
+  /** Timestamp when runtime stop last completed. */
   lastStopAt?: number | null;
+  /** Last runtime error text, already safe for status output. */
   lastError?: string | null;
+  /** Timestamp for last inbound channel traffic. */
   lastInboundAt?: number | null;
+  /** Timestamp for last outbound channel traffic. */
   lastOutboundAt?: number | null;
 };
 
 type StatusSnapshotExtra = Record<string, unknown>;
 
 type ComputedAccountStatusBase = {
+  /** Normalized channel account id. */
   accountId: string;
+  /** Optional display name from config or account metadata. */
   name?: string;
+  /** Whether config enables this account. */
   enabled?: boolean;
+  /** Whether required credentials/config are present. */
   configured?: boolean;
 };
 
 type ComputedAccountStatusAdapterParams<ResolvedAccount, Probe, Audit> = {
+  /** Resolved account config passed through the channel status adapter. */
   account: ResolvedAccount;
+  /** Full OpenClaw config available to adapter logic. */
   cfg: OpenClawConfig;
+  /** Runtime snapshot previously stored for this account. */
   runtime?: ChannelAccountSnapshot;
+  /** Optional probe result produced by probeAccount. */
   probe?: Probe;
+  /** Optional audit result produced by auditAccount. */
   audit?: Audit;
 };
 
+/** Flattened account identity/config state plus optional extra status fields. */
 type ComputedAccountStatusSnapshot<TExtra extends StatusSnapshotExtra = StatusSnapshotExtra> =
   ComputedAccountStatusBase & { extra?: TExtra };
 
 type ConfigIssueAccount = {
+  /** Account id attached to generated status issues. */
   accountId?: string | null;
+  /** False when required primary/dependent config is missing. */
   configured?: boolean | null;
 } & Record<string, unknown>;
 
@@ -303,6 +333,8 @@ export function buildRuntimeAccountStatusSnapshot<TExtra extends StatusSnapshotE
     lastStopAt: runtime?.lastStopAt ?? null,
     lastError: runtime?.lastError ?? null,
     probe,
+    // Optional transport fields are emitted only when the runtime reported them; absent values
+    // must not look like false/zero states in channel status output.
     ...(typeof runtime?.connected === "boolean" ? { connected: runtime.connected } : {}),
     ...(typeof runtime?.restartPending === "boolean"
       ? { restartPending: runtime.restartPending }
@@ -355,10 +387,15 @@ export function buildTokenChannelStatusSummary(
 
 /** Build a config-issue collector from snapshot-safe source metadata only. */
 export function createDependentCredentialStatusIssueCollector(options: {
+  /** Channel id included on generated config issues. */
   channel: string;
+  /** Account snapshot field that reports the dependent credential source. */
   dependencySourceKey: string;
+  /** Message used when the primary credential/config is missing. */
   missingPrimaryMessage: string;
+  /** Message used when the dependent credential/config is selected but unresolved. */
   missingDependentMessage: string;
+  /** Optional predicate for plugin-specific dependent credential source values. */
   isDependencyConfigured?: ((value: unknown) => boolean) | undefined;
 }) {
   const isDependencyConfigured =
