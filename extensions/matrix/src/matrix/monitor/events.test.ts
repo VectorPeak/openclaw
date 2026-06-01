@@ -8,7 +8,11 @@ import type { MatrixRawEvent } from "./types.js";
 import { EventType } from "./types.js";
 
 type RoomEventListener = (roomId: string, event: MatrixRawEvent) => void;
-type FailedDecryptListener = (roomId: string, event: MatrixRawEvent, error: Error) => void;
+type FailedDecryptListener = (
+  roomId: string,
+  event: MatrixRawEvent,
+  error: Error,
+) => void | Promise<void>;
 type VerificationSummaryListener = (summary: MatrixVerificationSummary) => void;
 
 function getSentNoticeBody(sendMessage: ReturnType<typeof vi.fn>, index = 0): string {
@@ -1504,7 +1508,7 @@ describe("registerMatrixMonitorEvents verification routing", () => {
       throw new Error("room.failed_decryption listener was not registered");
     }
 
-    failedDecryptListener(
+    await failedDecryptListener(
       "!room:example.org",
       {
         event_id: "$enc-self",
@@ -1543,7 +1547,7 @@ describe("registerMatrixMonitorEvents verification routing", () => {
       throw new Error("room.failed_decryption listener was not registered");
     }
 
-    failedDecryptListener(
+    await failedDecryptListener(
       "!room:example.org",
       {
         event_id: "$enc-other",
@@ -1583,7 +1587,7 @@ describe("registerMatrixMonitorEvents verification routing", () => {
         "!room-b:example.org",
         "!room-c:example.org",
       ].entries()) {
-        failedDecryptListener(
+        await failedDecryptListener(
           roomId,
           {
             event_id: `$enc-fresh-${index + 1}`,
@@ -1642,7 +1646,7 @@ describe("registerMatrixMonitorEvents verification routing", () => {
         throw new Error("room.failed_decryption listener was not registered");
       }
 
-      failedDecryptListener(
+      await failedDecryptListener(
         "!room:example.org",
         {
           event_id: "$enc-old",
@@ -1663,7 +1667,7 @@ describe("registerMatrixMonitorEvents verification routing", () => {
 
       healthySync.sinceMs = Date.now();
 
-      failedDecryptListener(
+      await failedDecryptListener(
         "!room:example.org",
         {
           event_id: "$enc-fresh-after-ready",
@@ -1701,7 +1705,7 @@ describe("registerMatrixMonitorEvents verification routing", () => {
 
       for (const wave of [1, 2]) {
         for (const index of [1, 2, 3]) {
-          failedDecryptListener(
+          await failedDecryptListener(
             `!room-${wave}-${index}:example.org`,
             {
               event_id: `$enc-wave-${wave}-${index}`,
@@ -1755,7 +1759,7 @@ describe("registerMatrixMonitorEvents verification routing", () => {
       }
 
       for (const index of [1, 2, 3]) {
-        failedDecryptListener(
+        await failedDecryptListener(
           `!room-first-${index}:example.org`,
           {
             event_id: `$enc-first-${index}`,
@@ -1772,7 +1776,7 @@ describe("registerMatrixMonitorEvents verification routing", () => {
       healthySyncSinceMs = Date.now();
 
       for (const index of [1, 2, 3]) {
-        failedDecryptListener(
+        await failedDecryptListener(
           `!room-second-${index}:example.org`,
           {
             event_id: `$enc-second-${index}`,
@@ -1823,7 +1827,7 @@ describe("registerMatrixMonitorEvents verification routing", () => {
       throw new Error("room.failed_decryption listener was not registered");
     }
 
-    failedDecryptListener(
+    await failedDecryptListener(
       "!room:example.org",
       {
         event_id: "$enc-lookup-fail",
