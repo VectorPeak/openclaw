@@ -7,7 +7,12 @@ import type { ExecApprovalChannelRuntimeEventKind } from "./exec-approval-channe
 
 export const CHANNEL_APPROVAL_NATIVE_RUNTIME_CONTEXT_CAPABILITY = "approval.native";
 
-/** Wrap a channel native runtime in a lazy loader while keeping availability checks eager. */
+/**
+ * Wraps a channel native runtime in a lazy loader while keeping availability checks eager.
+ *
+ * Availability hooks stay on the lightweight wrapper so startup and request filtering do not import
+ * channel runtime code until a presentation/transport/interaction hook actually needs it.
+ */
 export function createLazyChannelApprovalNativeRuntimeAdapter<
   TPendingPayload = unknown,
   TPreparedTarget = unknown,
@@ -127,7 +132,7 @@ export function createLazyChannelApprovalNativeRuntimeAdapter<
     },
     observe: {
       // Observe hooks are fire-and-forget at call sites. Reuse the already
-      // loaded runtime instead of introducing unawaited lazy-load promises.
+      // loaded runtime instead of introducing unawaited lazy-load promises or side-effect imports.
       onDeliveryError: (runtimeParams) => loadedRuntime?.observe?.onDeliveryError?.(runtimeParams),
       onDuplicateSkipped: (runtimeParams) =>
         loadedRuntime?.observe?.onDuplicateSkipped?.(runtimeParams),
