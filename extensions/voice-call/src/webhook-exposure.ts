@@ -12,8 +12,11 @@ type VoiceCallWebhookExposureConfig = {
 };
 
 type VoiceCallWebhookExposureStatus = {
+  /** Whether the selected provider can receive webhook callbacks with current config. */
   ok: boolean;
+  /** Whether some exposure mechanism was configured, even if it is invalid. */
   configured: boolean;
+  /** Human-readable setup status for doctor/config diagnostics. */
   message: string;
 };
 
@@ -38,7 +41,11 @@ export function isProviderUnreachableWebhookUrl(webhookUrl: string): boolean {
   }
 }
 
-/** Summarizes whether voice-call webhook exposure is configured for the selected provider. */
+/**
+ * Summarizes whether voice-call webhook exposure is configured for the selected provider.
+ * This is a diagnostic helper: runtime startup performs the final fail-closed
+ * check after public URL, tunnel, and Tailscale resolution.
+ */
 export function resolveWebhookExposureStatus(
   config: VoiceCallWebhookExposureConfig,
 ): VoiceCallWebhookExposureStatus {

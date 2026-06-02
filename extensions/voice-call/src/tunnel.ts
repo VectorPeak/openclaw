@@ -9,32 +9,36 @@ import { getTailscaleDnsName } from "./webhook/tailscale.js";
 const NGROK_LOG_BUFFER_MAX_CHARS = 16_384;
 
 interface TunnelConfig {
-  /** Tunnel provider: ngrok, tailscale-serve, or tailscale-funnel */
+  /** Tunnel provider: ngrok, tailscale-serve, tailscale-funnel, or none. */
   provider: "ngrok" | "tailscale-serve" | "tailscale-funnel" | "none";
-  /** Local port to tunnel */
+  /** Local webhook server port to expose. */
   port: number;
-  /** Path prefix for the tunnel (e.g., /voice/webhook) */
+  /** Webhook path appended to the provider-visible public origin. */
   path: string;
-  /** ngrok auth token (optional, enables longer sessions) */
+  /** Optional ngrok auth token, applied before the tunnel starts. */
   ngrokAuthToken?: string;
-  /** ngrok custom domain (paid feature) */
+  /** Optional ngrok custom domain. */
   ngrokDomain?: string;
 }
 
 export interface TunnelResult {
-  /** The public URL */
+  /** Provider-visible webhook URL, including the configured webhook path. */
   publicUrl: string;
-  /** Function to stop the tunnel */
+  /** Idempotent cleanup hook for the spawned tunnel route/process. */
   stop: () => Promise<void>;
-  /** Tunnel provider name */
+  /** Tunnel provider that produced this public URL. */
   provider: string;
 }
 
 /** Starts an ngrok CLI tunnel and returns the provider-visible webhook URL. */
 export async function startNgrokTunnel(config: {
+  /** Local webhook server port to expose through ngrok. */
   port: number;
+  /** Webhook path appended to the ngrok public origin. */
   path: string;
+  /** Optional ngrok auth token configured before startup. */
   authToken?: string;
+  /** Optional ngrok custom domain. */
   domain?: string;
 }): Promise<TunnelResult> {
   if (config.authToken) {
@@ -197,8 +201,11 @@ export async function isNgrokAvailable(): Promise<boolean> {
 
 /** Starts one Tailscale serve/funnel route for the configured webhook path. */
 export async function startTailscaleTunnel(config: {
+  /** Tailscale exposure mode; funnel is internet-public, serve is tailnet-scoped. */
   mode: "serve" | "funnel";
+  /** Local webhook server port to expose. */
   port: number;
+  /** Webhook path to expose on the tailnet DNS name. */
   path: string;
 }): Promise<TunnelResult> {
   const dnsName = await getTailscaleDnsName();
