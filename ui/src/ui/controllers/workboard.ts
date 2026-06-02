@@ -1748,15 +1748,14 @@ export async function syncWorkboardLifecycle(params: {
     const executionStatus = executionStatusForLifecycle(lifecycle);
     const patch: Record<string, unknown> = {};
     if (
+      lifecycle.sourceUpdatedAt !== undefined &&
       !shouldSkipLifecycleStatusWrite(params.host, card, lifecycle) &&
       shouldSyncCardStatus(card, lifecycle.targetStatus)
     ) {
       patch.status = lifecycle.targetStatus;
-      if (lifecycle.sourceUpdatedAt !== undefined) {
-        mergePatchMetadata(patch, {
-          lifecycleStatusSourceUpdatedAt: lifecycle.sourceUpdatedAt,
-        });
-      }
+      mergePatchMetadata(patch, {
+        lifecycleStatusSourceUpdatedAt: lifecycle.sourceUpdatedAt,
+      });
     }
     if (shouldSyncExecutionStatus(card, executionStatus)) {
       patch.execution = {

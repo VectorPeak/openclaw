@@ -2056,6 +2056,34 @@ describe("workboard controller", () => {
     expect(state.cards.find((card) => card.id === "card-review")?.status).toBe("review");
   });
 
+  it("does not sync linked card status from sessions without lifecycle provenance", async () => {
+    const host = {};
+    const state = getWorkboardState(host);
+    state.loaded = true;
+    state.cards = [{ ...sampleCard, sessionKey: sampleSession.key }];
+    const client = createClient({
+      "workboard.cards.update": {
+        card: { ...sampleCard, status: "review", sessionKey: sampleSession.key },
+      },
+    });
+
+    await syncWorkboardLifecycle({
+      host,
+      client: client as never,
+      sessions: [
+        {
+          ...sampleSession,
+          status: "done",
+          hasActiveRun: false,
+          updatedAt: null,
+        },
+      ],
+    });
+
+    expect(client.request).not.toHaveBeenCalled();
+    expect(state.cards[0]).toMatchObject({ status: "todo" });
+  });
+
   it("refreshes task lifecycle before syncing task-backed cards", async () => {
     const host = {};
     const state = getWorkboardState(host);
