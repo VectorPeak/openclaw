@@ -851,6 +851,10 @@ vi.mock("./history-image-prune.js", () => ({
   pruneProcessedHistoryImages: () => null,
 }));
 
+/**
+ * Minimal mutable subset of the real AgentSession that runner tests can safely
+ * mutate while still exercising prompt, custom-message, and system-prompt paths.
+ */
 export type MutableSession = {
   sessionId: string;
   messages: unknown[];
