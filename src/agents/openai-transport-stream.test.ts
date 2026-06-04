@@ -129,6 +129,35 @@ function expectRecordFields(record: unknown, expected: Record<string, unknown>) 
   return actual;
 }
 
+function createUnreadableToolSchema(): Record<string, unknown> {
+  const schema: Record<string, unknown> = {
+    type: "object",
+    additionalProperties: false,
+  };
+  Object.defineProperty(schema, "properties", {
+    enumerable: true,
+    get() {
+      throw new Error("tool schema getter exploded");
+    },
+  });
+  return schema;
+}
+
+function createToolSchemaWithProtoProperty(): Record<string, unknown> {
+  const properties: Record<string, unknown> = {};
+  Object.defineProperty(properties, "__proto__", {
+    value: { type: "string" },
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+  return {
+    type: "object",
+    properties,
+    additionalProperties: false,
+  };
+}
+
 describe("openai transport stream", () => {
   it("fails Azure Responses streams when headers arrive but no first event follows", async () => {
     const model = createAzureResponsesModel();
@@ -4690,6 +4719,106 @@ describe("openai transport stream", () => {
     expect(first.tools).toEqual(second.tools);
   });
 
+  it("skips unreadable Responses tool schemas while preserving healthy tools", () => {
+    const params = buildOpenAIResponsesParams(
+      {
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+        api: "openai-responses",
+        provider: "openai",
+        baseUrl: "https://api.openai.com/v1",
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 200000,
+        maxTokens: 8192,
+      } satisfies Model<"openai-responses">,
+      {
+        systemPrompt: "system",
+        messages: [],
+        tools: [
+          {
+            name: "broken_lookup",
+            description: "Broken",
+            parameters: createUnreadableToolSchema(),
+          },
+          {
+            name: "safe_lookup",
+            description: "Safe",
+            parameters: createToolSchemaWithProtoProperty(),
+          },
+        ],
+      } as never,
+      undefined,
+    ) as { tools?: Array<{ name?: string; parameters?: Record<string, unknown> }> };
+
+    expect(params.tools?.map((tool) => tool.name)).toEqual(["safe_lookup"]);
+    const properties = params.tools?.[0]?.parameters?.properties;
+    expect(Object.hasOwn(properties as Record<string, unknown>, "__proto__")).toBe(true);
+  });
+
+  it("rejects required Responses tool_choice when schema filtering removes all tools", () => {
+    expect(() =>
+      buildOpenAIResponsesParams(
+        {
+          id: "gpt-5.4",
+          name: "GPT-5.4",
+          api: "openai-responses",
+          provider: "openai",
+          baseUrl: "https://api.openai.com/v1",
+          reasoning: true,
+          input: ["text"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 200000,
+          maxTokens: 8192,
+        } satisfies Model<"openai-responses">,
+        {
+          systemPrompt: "system",
+          messages: [],
+          tools: [
+            {
+              name: "broken_lookup",
+              description: "Broken",
+              parameters: createUnreadableToolSchema(),
+            },
+          ],
+        } as never,
+        { toolChoice: "required" } as never,
+      ),
+    ).toThrow(/requires at least one available tool/);
+  });
+
+  it("rejects forced Responses tool_choice when the selected tool is filtered", () => {
+    expect(() =>
+      buildOpenAIResponsesParams(
+        {
+          id: "gpt-5.4",
+          name: "GPT-5.4",
+          api: "openai-responses",
+          provider: "openai",
+          baseUrl: "https://api.openai.com/v1",
+          reasoning: true,
+          input: ["text"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 200000,
+          maxTokens: 8192,
+        } satisfies Model<"openai-responses">,
+        {
+          systemPrompt: "system",
+          messages: [],
+          tools: [
+            {
+              name: "broken_lookup",
+              description: "Broken",
+              parameters: createUnreadableToolSchema(),
+            },
+          ],
+        } as never,
+        { toolChoice: { type: "function", name: "broken_lookup" } } as never,
+      ),
+    ).toThrow(/forced toolChoice "broken_lookup" is unavailable/);
+  });
+
   it("falls back to strict:false when a native OpenAI tool schema is not strict-compatible", () => {
     const params = buildOpenAIResponsesParams(
       {
@@ -5785,6 +5914,109 @@ describe("openai transport stream", () => {
 
     expect(first.tools?.map((tool) => tool.function?.name)).toEqual(["alpha", "zeta"]);
     expect(first.tools).toEqual(second.tools);
+  });
+
+  it("skips unreadable Chat Completions tool schemas while preserving healthy tools", () => {
+    const params = buildOpenAICompletionsParams(
+      {
+        id: "custom-model",
+        name: "Custom Model",
+        api: "openai-completions",
+        provider: "custom-cpa",
+        baseUrl: "https://proxy.example.com/v1",
+        compat: { supportsPromptCacheKey: true },
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 32768,
+        maxTokens: 8192,
+      } as unknown as Model<"openai-completions">,
+      {
+        systemPrompt: "system",
+        messages: [],
+        tools: [
+          {
+            name: "broken_lookup",
+            description: "Broken",
+            parameters: createUnreadableToolSchema(),
+          },
+          {
+            name: "safe_lookup",
+            description: "Safe",
+            parameters: createToolSchemaWithProtoProperty(),
+          },
+        ],
+      } as never,
+      { sessionId: "session-123" },
+    ) as {
+      tools?: Array<{ function?: { name?: string; parameters?: Record<string, unknown> } }>;
+    };
+
+    expect(params.tools?.map((tool) => tool.function?.name)).toEqual(["safe_lookup"]);
+    const properties = params.tools?.[0]?.function?.parameters?.properties;
+    expect(Object.hasOwn(properties as Record<string, unknown>, "__proto__")).toBe(true);
+  });
+
+  it("rejects required Chat Completions tool_choice when schema filtering removes all tools", () => {
+    expect(() =>
+      buildOpenAICompletionsParams(
+        {
+          id: "test-model",
+          name: "Test Model",
+          api: "openai-completions",
+          provider: "vllm",
+          baseUrl: "http://localhost:8000/v1",
+          reasoning: false,
+          input: ["text"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 4096,
+          maxTokens: 2048,
+        } satisfies Model<"openai-completions">,
+        {
+          systemPrompt: "system",
+          messages: [],
+          tools: [
+            {
+              name: "broken_lookup",
+              description: "Broken",
+              parameters: createUnreadableToolSchema(),
+            },
+          ],
+        } as never,
+        { toolChoice: "required" },
+      ),
+    ).toThrow(/requires at least one available tool/);
+  });
+
+  it("rejects forced Chat Completions tool_choice when the selected tool is filtered", () => {
+    expect(() =>
+      buildOpenAICompletionsParams(
+        {
+          id: "test-model",
+          name: "Test Model",
+          api: "openai-completions",
+          provider: "vllm",
+          baseUrl: "http://localhost:8000/v1",
+          reasoning: false,
+          input: ["text"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 4096,
+          maxTokens: 2048,
+        } satisfies Model<"openai-completions">,
+        {
+          systemPrompt: "system",
+          messages: [],
+          tools: [
+            {
+              name: "broken_lookup",
+              description: "Broken",
+              parameters: createUnreadableToolSchema(),
+            },
+          ],
+        } as never,
+        { toolChoice: { type: "function", function: { name: "broken_lookup" } } },
+      ),
+    ).toThrow(/forced toolChoice "broken_lookup" is unavailable/);
   });
 
   it("disables developer-role-only compat defaults for configured custom proxy completions providers", () => {

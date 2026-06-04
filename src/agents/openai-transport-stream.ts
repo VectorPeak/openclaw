@@ -96,6 +96,9 @@ const MODEL_STREAM_COOPERATIVE_YIELD_INTERVAL_MS = 12;
 const MODEL_STREAM_COOPERATIVE_YIELD_MAX_EVENTS = 64;
 const RESPONSE_FAILED_NO_DETAILS_MESSAGE = "Unknown error (no error details in response)";
 const MAX_OPENAI_STRICT_TOOL_DOWNGRADE_DIAGNOSTIC_KEYS = 256;
+const OPENAI_TRANSPORT_TOOL_SCHEMA_MAX_DEPTH = 24;
+const OPENAI_TRANSPORT_TOOL_SCHEMA_MAX_NODES = 1_000;
+const OPENAI_TRANSPORT_TOOL_SCHEMA_INVALID = Symbol("openai-transport-tool-schema-invalid");
 const OPENAI_RESPONSES_REASONING_REPLAY_META_KEY = "__openclaw_replay";
 const OPENAI_RESPONSES_REASONING_REPLAY_BLOCK_META_KEY = "openclawReasoningReplay";
 const OPENAI_RESPONSES_REPLAY_ITEM_ID_MAX_LENGTH = 64;
@@ -215,6 +218,17 @@ type OpenAIModeCompatInput = Omit<ModelCompatConfig, "thinkingFormat"> & {
 
 type OpenAIModeModel = Omit<Model, "compat"> & {
   compat?: OpenAIModeCompatInput | null;
+};
+
+type OpenAITransportToolSnapshot = {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+};
+
+type OpenAITransportToolSchemaCloneState = {
+  seen: WeakSet<object>;
+  nodes: number;
 };
 
 type MutableAssistantOutput = {
@@ -1275,7 +1289,7 @@ function convertResponsesMessages(
 }
 
 function convertResponsesTools(
-  tools: NonNullable<Context["tools"]>,
+  tools: readonly OpenAITransportToolSnapshot[],
   model: OpenAIModeModel,
   options?: { strict?: boolean | null },
 ): FunctionTool[] {
@@ -1292,7 +1306,7 @@ function convertResponsesTools(
         tool.parameters,
         strict === true,
         model.compat,
-      ) as Record<string, unknown>,
+      ),
     } as FunctionTool;
     if (strict !== undefined) {
       result.strict = strict;
@@ -1301,8 +1315,155 @@ function convertResponsesTools(
   });
 }
 
+function snapshotOpenAITransportTools(
+  tools: readonly NonNullable<Context["tools"]>[number][],
+): OpenAITransportToolSnapshot[] {
+  const snapshots: OpenAITransportToolSnapshot[] = [];
+  for (const tool of tools) {
+    const snapshot = snapshotOpenAITransportTool(tool);
+    if (snapshot) {
+      snapshots.push(snapshot);
+    }
+  }
+  return snapshots;
+}
+
+function snapshotOpenAITransportTool(
+  tool: NonNullable<Context["tools"]>[number],
+): OpenAITransportToolSnapshot | undefined {
+  let name: string;
+  let description: string;
+  let parameters: unknown;
+  try {
+    name = tool.name;
+    description = tool.description;
+    parameters = tool.parameters;
+  } catch {
+    return undefined;
+  }
+  if (!name || typeof name !== "string" || typeof description !== "string") {
+    return undefined;
+  }
+
+  let clonedParameters: unknown;
+  try {
+    clonedParameters = cloneOpenAITransportToolSchemaValue(
+      parameters,
+      {
+        seen: new WeakSet<object>(),
+        nodes: 0,
+      },
+      0,
+    );
+  } catch {
+    return undefined;
+  }
+  if (
+    clonedParameters === OPENAI_TRANSPORT_TOOL_SCHEMA_INVALID ||
+    !clonedParameters ||
+    typeof clonedParameters !== "object" ||
+    Array.isArray(clonedParameters)
+  ) {
+    return undefined;
+  }
+
+  return {
+    name,
+    description,
+    parameters: clonedParameters as Record<string, unknown>,
+  };
+}
+
+function cloneOpenAITransportToolSchemaValue(
+  value: unknown,
+  state: OpenAITransportToolSchemaCloneState,
+  depth: number,
+): unknown {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : OPENAI_TRANSPORT_TOOL_SCHEMA_INVALID;
+  }
+  if (typeof value !== "object") {
+    return OPENAI_TRANSPORT_TOOL_SCHEMA_INVALID;
+  }
+  if (
+    depth >= OPENAI_TRANSPORT_TOOL_SCHEMA_MAX_DEPTH ||
+    state.nodes >= OPENAI_TRANSPORT_TOOL_SCHEMA_MAX_NODES
+  ) {
+    return OPENAI_TRANSPORT_TOOL_SCHEMA_INVALID;
+  }
+  if (state.seen.has(value)) {
+    return OPENAI_TRANSPORT_TOOL_SCHEMA_INVALID;
+  }
+  state.seen.add(value);
+  state.nodes += 1;
+
+  if (Array.isArray(value)) {
+    const result: unknown[] = [];
+    for (const item of value) {
+      const clonedItem = cloneOpenAITransportToolSchemaValue(item, state, depth + 1);
+      if (clonedItem === OPENAI_TRANSPORT_TOOL_SCHEMA_INVALID) {
+        state.seen.delete(value);
+        return OPENAI_TRANSPORT_TOOL_SCHEMA_INVALID;
+      }
+      result.push(clonedItem);
+    }
+    state.seen.delete(value);
+    return result;
+  }
+
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      state.seen.delete(value);
+      return OPENAI_TRANSPORT_TOOL_SCHEMA_INVALID;
+    }
+  } catch {
+    state.seen.delete(value);
+    return OPENAI_TRANSPORT_TOOL_SCHEMA_INVALID;
+  }
+
+  const result: Record<string, unknown> = {};
+  let keys: string[];
+  try {
+    keys = Object.keys(value);
+  } catch {
+    state.seen.delete(value);
+    return OPENAI_TRANSPORT_TOOL_SCHEMA_INVALID;
+  }
+  for (const key of keys) {
+    let entry: unknown;
+    try {
+      entry = Reflect.get(value, key);
+    } catch {
+      state.seen.delete(value);
+      return OPENAI_TRANSPORT_TOOL_SCHEMA_INVALID;
+    }
+    const clonedEntry = cloneOpenAITransportToolSchemaValue(entry, state, depth + 1);
+    if (clonedEntry === OPENAI_TRANSPORT_TOOL_SCHEMA_INVALID) {
+      state.seen.delete(value);
+      return OPENAI_TRANSPORT_TOOL_SCHEMA_INVALID;
+    }
+    if (key === "__proto__") {
+      Object.defineProperty(result, key, {
+        value: clonedEntry,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    } else {
+      result[key] = clonedEntry;
+    }
+  }
+
+  state.seen.delete(value);
+  return result;
+}
+
 function resolveOpenAIStrictToolFlagWithDiagnostics(
-  tools: NonNullable<Context["tools"]>,
+  tools: readonly OpenAITransportToolSnapshot[],
   strictSetting: boolean | null | undefined,
   context: { transport: "responses" | "completions"; model: OpenAIModeModel },
 ): boolean | undefined {
@@ -1368,6 +1529,88 @@ function shouldLogOpenAIStrictToolDowngradeDiagnostic(
   }
   loggedOpenAIStrictToolDowngradeDiagnosticKeys.add(key);
   return true;
+}
+
+function resolveOpenAIResponsesToolChoice(
+  choice: OpenAIResponsesOptions["toolChoice"],
+  tools: readonly OpenAITransportToolSnapshot[],
+): NonNullable<OpenAIResponsesOptions["toolChoice"]> {
+  if (!choice) {
+    return "auto";
+  }
+  if (choice === "auto" || choice === "none") {
+    return choice;
+  }
+  if (choice === "required") {
+    if (tools.length === 0) {
+      throw new Error(
+        'OpenAI Responses toolChoice "required" requires at least one available tool',
+      );
+    }
+    return choice;
+  }
+  if (typeof choice !== "object") {
+    return choice;
+  }
+  if (choice.type === "function") {
+    const requiredName = choice.name;
+    if (tools.some((tool) => tool.name === requiredName)) {
+      return choice;
+    }
+    throw new Error(
+      `OpenAI Responses forced toolChoice "${requiredName}" is unavailable after tool schema filtering`,
+    );
+  }
+  if (choice.type !== "allowed_tools") {
+    return choice;
+  }
+
+  const availableNames = new Set(tools.map((tool) => tool.name));
+  const filteredAllowedTools = choice.tools.filter((tool) => {
+    if (tool.type !== "function") {
+      return true;
+    }
+    return typeof tool.name === "string" && availableNames.has(tool.name);
+  });
+  if (choice.mode === "required" && filteredAllowedTools.length === 0) {
+    throw new Error(
+      'OpenAI Responses allowed_tools toolChoice "required" requires at least one available tool',
+    );
+  }
+  if (filteredAllowedTools.length === choice.tools.length) {
+    return choice;
+  }
+  return {
+    ...choice,
+    tools: filteredAllowedTools,
+  };
+}
+
+function resolveOpenAICompletionsToolChoice(
+  choice: OpenAICompletionsOptions["toolChoice"],
+  tools: readonly OpenAITransportToolSnapshot[],
+): NonNullable<OpenAICompletionsOptions["toolChoice"]> {
+  if (!choice) {
+    return "auto";
+  }
+  if (choice === "auto" || choice === "none") {
+    return choice;
+  }
+  if (choice === "required") {
+    if (tools.length === 0) {
+      throw new Error(
+        'OpenAI completions toolChoice "required" requires at least one available tool',
+      );
+    }
+    return choice;
+  }
+  const requiredName = choice.function.name;
+  if (tools.some((tool) => tool.name === requiredName)) {
+    return choice;
+  }
+  throw new Error(
+    `OpenAI completions forced toolChoice "${requiredName}" is unavailable after tool schema filtering`,
+  );
 }
 
 function createResponsesFirstEventTimeoutError(model: Model, timeoutMs: number): Error {
@@ -2257,13 +2500,14 @@ export function buildOpenAIResponsesParams(
     params.service_tier = options.serviceTier;
   }
   if (context.tools) {
-    params.tools = convertResponsesTools(context.tools, model as OpenAIModeModel, {
+    const toolSnapshots = snapshotOpenAITransportTools(context.tools);
+    params.tools = convertResponsesTools(toolSnapshots, model as OpenAIModeModel, {
       strict: resolveOpenAIStrictToolSetting(model as OpenAIModeModel, {
         transport: "stream",
       }),
     });
     if (options?.toolChoice) {
-      params.tool_choice = options.toolChoice;
+      params.tool_choice = resolveOpenAIResponsesToolChoice(options.toolChoice, toolSnapshots);
     }
   }
   if (model.reasoning) {
@@ -3676,7 +3920,7 @@ function applyTogetherOpenAICompletionsThinkingParams(params: {
 }
 
 function convertTools(
-  tools: NonNullable<Context["tools"]>,
+  tools: readonly OpenAITransportToolSnapshot[],
   compat: ReturnType<typeof getCompat>,
   model: OpenAIModeModel,
 ) {
@@ -4114,9 +4358,10 @@ export function buildOpenAICompletionsParams(
   }
   if (supportsModelTools(model)) {
     if (context.tools) {
-      params.tools = convertTools(context.tools, compat, model);
+      const toolSnapshots = snapshotOpenAITransportTools(context.tools);
+      params.tools = convertTools(toolSnapshots, compat, model);
       if (options?.toolChoice) {
-        params.tool_choice = options.toolChoice;
+        params.tool_choice = resolveOpenAICompletionsToolChoice(options.toolChoice, toolSnapshots);
       } else if (
         compatDetection.capabilities.usesExplicitProxyLikeEndpoint &&
         Array.isArray(params.tools) &&
