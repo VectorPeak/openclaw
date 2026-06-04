@@ -1,3 +1,4 @@
+// Assertions for upgrade-survivor E2E scenarios.
 import fs from "node:fs";
 import path from "node:path";
 import { readPluginInstallIndex } from "../plugin-index-sqlite.mjs";
@@ -21,6 +22,10 @@ const PERSONA_FILES = new Map([
   ["USER.md", "# Existing User\n\nPrefers survivor tests.\n"],
   ["MEMORY.md", "# Existing Memory\n\nUpgrade reports came from real users.\n"],
 ]);
+
+const LEGACY_SESSION_MAIN_ID = "upgrade-main-session";
+const LEGACY_SESSION_DIRECT_ID = "upgrade-direct-session";
+const LEGACY_SESSION_GROUP_ID = "upgrade-group-session";
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -82,6 +87,54 @@ function assert(condition, message) {
   }
 }
 
+function seedLegacySessionMetadata(stateDir) {
+  const legacySessionsDir = path.join(stateDir, "sessions");
+  writeJson(path.join(legacySessionsDir, "sessions.json"), {
+    main: {
+      sessionId: LEGACY_SESSION_MAIN_ID,
+      sessionFile: path.join(legacySessionsDir, `${LEGACY_SESSION_MAIN_ID}.jsonl`),
+      provider: "openai",
+      model: "gpt-5.5",
+      updatedAt: 1710000000000,
+      skillsSnapshot: {
+        prompt: "legacy prompt survives as metadata",
+        resolvedSkills: [
+          {
+            name: "legacy-heavy-skill-cache",
+            filePath: "/tmp/openclaw-old-package/skills/legacy-heavy-skill-cache/SKILL.md",
+          },
+        ],
+      },
+    },
+    "+15551234567": {
+      sessionId: LEGACY_SESSION_DIRECT_ID,
+      sessionFile: path.join(legacySessionsDir, `${LEGACY_SESSION_DIRECT_ID}.jsonl`),
+      provider: "openai",
+      model: "gpt-5.5",
+      updatedAt: 1710000000100,
+    },
+    "slack:channel:CUPGRADE": {
+      sessionId: LEGACY_SESSION_GROUP_ID,
+      sessionFile: path.join(legacySessionsDir, `${LEGACY_SESSION_GROUP_ID}.jsonl`),
+      provider: "openai",
+      model: "gpt-5.5",
+      updatedAt: 1710000000200,
+      lastChannel: "slack",
+      lastTo: "CUPGRADE",
+    },
+  });
+  for (const sessionId of [
+    LEGACY_SESSION_MAIN_ID,
+    LEGACY_SESSION_DIRECT_ID,
+    LEGACY_SESSION_GROUP_ID,
+  ]) {
+    write(
+      path.join(legacySessionsDir, `${sessionId}.jsonl`),
+      `${JSON.stringify({ type: "session", id: sessionId })}\n`,
+    );
+  }
+}
+
 function getScenario() {
   const scenario = process.env.OPENCLAW_UPGRADE_SURVIVOR_SCENARIO || "base";
   assert(SCENARIOS.has(scenario), `unknown upgrade survivor scenario: ${scenario}`);
@@ -138,6 +191,7 @@ function seedState() {
     agentId: "main",
     title: "Existing user session",
   });
+  seedLegacySessionMetadata(stateDir);
 
   const runtimeRoot = path.join(stateDir, "plugin-runtime-deps");
   for (const plugin of ["discord", "telegram", "whatsapp"]) {
@@ -356,12 +410,15 @@ function assertStateSurvived() {
   const stateDir = requireEnv("OPENCLAW_STATE_DIR");
   const workspace = requireEnv("OPENCLAW_TEST_WORKSPACE_DIR");
   const scenario = getScenario();
+  const stage = process.env.OPENCLAW_UPGRADE_SURVIVOR_ASSERT_STAGE || "survival";
   assert(fs.existsSync(path.join(workspace, "IDENTITY.md")), "workspace identity file missing");
   assert(
     fs.existsSync(path.join(stateDir, "agents", "main", "sessions", "legacy-session.json")),
     "legacy session file missing",
   );
-  const stage = process.env.OPENCLAW_UPGRADE_SURVIVOR_ASSERT_STAGE || "survival";
+  if (stage !== "baseline") {
+    assertSessionMetadataMigrated(stateDir);
+  }
   const legacyRuntimeRoot = path.join(stateDir, "plugin-runtime-deps");
   if (stage === "baseline") {
     if (fs.existsSync(legacyRuntimeRoot)) {
@@ -403,6 +460,55 @@ function assertStateSurvived() {
       `stale versioned runtime deps survived update/doctor: ${staleVersionedRoots.join(", ")}`,
     );
   }
+}
+
+function assertSessionMetadataMigrated(stateDir) {
+  const legacyStorePath = path.join(stateDir, "sessions", "sessions.json");
+  const agentSessionsDir = path.join(stateDir, "agents", "main", "sessions");
+  const targetStorePath = path.join(agentSessionsDir, "sessions.json");
+  assert(
+    !fs.existsSync(legacyStorePath),
+    `legacy sessions.json survived migration: ${legacyStorePath}`,
+  );
+  for (const sessionId of [
+    LEGACY_SESSION_MAIN_ID,
+    LEGACY_SESSION_DIRECT_ID,
+    LEGACY_SESSION_GROUP_ID,
+  ]) {
+    assert(
+      fs.existsSync(path.join(agentSessionsDir, `${sessionId}.jsonl`)),
+      `legacy session transcript was not moved for ${sessionId}`,
+    );
+  }
+
+  assert(fs.existsSync(targetStorePath), `agent session store missing: ${targetStorePath}`);
+  const store = readJson(targetStorePath);
+  const main = store["agent:main:main"];
+  const direct = store["agent:main:+15551234567"];
+  const group = store["agent:main:slack:channel:cupgrade"];
+  assert(main?.sessionId === LEGACY_SESSION_MAIN_ID, "main legacy session row missing");
+  assert(direct?.sessionId === LEGACY_SESSION_DIRECT_ID, "direct legacy session row missing");
+  assert(group?.sessionId === LEGACY_SESSION_GROUP_ID, "channel legacy session row missing");
+  assert(
+    main?.sessionFile === path.join(agentSessionsDir, `${LEGACY_SESSION_MAIN_ID}.jsonl`),
+    "main legacy session row still points at the old sessions directory",
+  );
+  assert(
+    direct?.sessionFile === path.join(agentSessionsDir, `${LEGACY_SESSION_DIRECT_ID}.jsonl`),
+    "direct legacy session row still points at the old sessions directory",
+  );
+  assert(
+    group?.sessionFile === path.join(agentSessionsDir, `${LEGACY_SESSION_GROUP_ID}.jsonl`),
+    "channel legacy session row still points at the old sessions directory",
+  );
+  assert(
+    main.skillsSnapshot?.prompt === "legacy prompt survives as metadata",
+    "legacy session metadata prompt was not preserved",
+  );
+  assert(
+    main.skillsSnapshot?.resolvedSkills === undefined,
+    "heavy resolvedSkills cache was persisted into migrated session metadata",
+  );
 }
 
 function readInstalledPluginIndex() {

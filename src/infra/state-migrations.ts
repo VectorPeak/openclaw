@@ -1,3 +1,4 @@
+// Applies persisted state migrations across OpenClaw config files.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -55,7 +56,11 @@ import {
 } from "../routing/session-key.js";
 import { normalizeSessionKeyPreservingOpaquePeerIds } from "../sessions/session-key-utils.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
-import { runOpenClawStateWriteTransaction } from "../state/openclaw-state-db.js";
+import {
+  detectOpenClawStateDatabaseSchemaMigrations,
+  repairOpenClawStateDatabaseSchema,
+  runOpenClawStateWriteTransaction,
+} from "../state/openclaw-state-db.js";
 import { expandHomePrefix } from "./home-dir.js";
 import {
   executeSqliteQuerySync,
@@ -108,6 +113,10 @@ export type LegacyStateDetection = {
   pluginInstallIndex: {
     sourcePath: string;
     hasLegacy: boolean;
+  };
+  stateSchema: {
+    hasLegacy: boolean;
+    preview: string[];
   };
   taskStateSidecars: {
     taskRunsPath: string;
@@ -1572,6 +1581,7 @@ async function runLegacyMigrationPlans(
         const store = createPluginStateKeyedStore<unknown>(plan.pluginId, {
           namespace: plan.namespace,
           maxEntries: plan.maxEntries,
+          ...(plan.defaultTtlMs != null ? { defaultTtlMs: plan.defaultTtlMs } : {}),
         });
         try {
           storeEntries = await store.entries();
@@ -1701,6 +1711,14 @@ async function runLegacyMigrationPlans(
             changes,
             warnings,
           });
+        }
+        if (allEntriesCovered && plan.removeSource) {
+          try {
+            await plan.removeSource();
+            changes.push(`Removed ${plan.label} legacy source (${plan.sourcePath})`);
+          } catch (err) {
+            warnings.push(`Failed removing ${plan.label} legacy source: ${String(err)}`);
+          }
         }
       });
       continue;
@@ -1954,6 +1972,83 @@ function canonicalizeSessionStore(params: {
   }
 
   return { store: canonical, legacyKeys };
+}
+
+function resolveStaleLegacySessionFile(params: {
+  entry: unknown;
+  legacyDir: string;
+  targetDir: string;
+}): string | undefined {
+  if (!params.entry || typeof params.entry !== "object" || Array.isArray(params.entry)) {
+    return undefined;
+  }
+  const entry = params.entry as SessionEntryLike;
+  const rawSessionFile = entry.sessionFile;
+  if (typeof rawSessionFile !== "string") {
+    return undefined;
+  }
+  const legacySessionFile = path.isAbsolute(rawSessionFile)
+    ? path.resolve(rawSessionFile)
+    : path.resolve(params.legacyDir, rawSessionFile);
+  const relative = path.relative(path.resolve(params.legacyDir), legacySessionFile);
+  if (relative.startsWith("..") || path.isAbsolute(relative) || fileExists(legacySessionFile)) {
+    return undefined;
+  }
+  const legacyBackupHasTranscript = safeReadDir(path.dirname(params.legacyDir)).some(
+    (entry) =>
+      entry.isDirectory() &&
+      entry.name.startsWith(`${path.basename(params.legacyDir)}.legacy-`) &&
+      fileExists(
+        path.join(path.dirname(params.legacyDir), entry.name, path.basename(legacySessionFile)),
+      ),
+  );
+  if (legacyBackupHasTranscript) {
+    return undefined;
+  }
+  const parsed = path.parse(path.basename(legacySessionFile));
+  const hasCollisionRename = safeReadDir(params.targetDir).some(
+    (entry) =>
+      entry.isFile() &&
+      entry.name.startsWith(`${parsed.name}.legacy-`) &&
+      entry.name.endsWith(parsed.ext),
+  );
+  if (hasCollisionRename) {
+    return undefined;
+  }
+  const targetSessionFile = path.join(params.targetDir, path.basename(legacySessionFile));
+  if (!fileExists(targetSessionFile) || typeof entry.sessionId !== "string") {
+    return undefined;
+  }
+  const readFirstLine = () => {
+    const fd = fs.openSync(targetSessionFile, "r");
+    try {
+      const buffer = Buffer.alloc(8192);
+      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
+      if (bytesRead <= 0) {
+        return undefined;
+      }
+      const chunk = buffer.subarray(0, bytesRead).toString("utf8");
+      const newline = chunk.indexOf("\n");
+      return newline >= 0 ? chunk.slice(0, newline) : chunk;
+    } finally {
+      fs.closeSync(fd);
+    }
+  };
+  try {
+    const firstLine = readFirstLine();
+    const header = firstLine ? (JSON.parse(firstLine) as unknown) : undefined;
+    if (!header || typeof header !== "object" || Array.isArray(header)) {
+      return undefined;
+    }
+    if ((header as { type?: unknown }).type === "session") {
+      return (header as { id?: unknown }).id === entry.sessionId ? targetSessionFile : undefined;
+    }
+    const canonicalFileName =
+      path.basename(entry.sessionId) === entry.sessionId ? `${entry.sessionId}.jsonl` : undefined;
+    return canonicalFileName === path.basename(targetSessionFile) ? targetSessionFile : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function skipJson5Trivia(raw: string, index: number): number {
@@ -2618,6 +2713,17 @@ export async function detectLegacyStateMigrations(params: {
         scope: targetScope,
       })
     : [];
+  const hasStaleSessionFiles =
+    targetSessionParsed.ok &&
+    Object.values(targetSessionParsed.store).some((entry) =>
+      Boolean(
+        resolveStaleLegacySessionFile({
+          entry,
+          legacyDir: sessionsLegacyDir,
+          targetDir: sessionsTargetDir,
+        }),
+      ),
+    );
 
   const legacyAgentDir = path.join(stateDir, "agent");
   const targetAgentDir = path.join(stateDir, "agents", targetAgentId, "agent");
@@ -2626,6 +2732,9 @@ export async function detectLegacyStateMigrations(params: {
   const hasPluginStateSidecar = fileExists(pluginStateSidecarPath);
   const pluginInstallIndexPath = resolveLegacyInstalledPluginIndexStorePath({ stateDir });
   const hasPluginInstallIndex = fileExists(pluginInstallIndexPath);
+  const stateSchemaMigrations = detectOpenClawStateDatabaseSchemaMigrations({
+    env: { ...env, OPENCLAW_STATE_DIR: stateDir },
+  });
   const taskRunsSidecarPath = resolveLegacyTaskRunsSidecarPath(stateDir);
   const flowRunsSidecarPath = resolveLegacyFlowRunsSidecarPath(stateDir);
   const hasTaskStateSidecars = fileExists(taskRunsSidecarPath) || fileExists(flowRunsSidecarPath);
@@ -2644,12 +2753,15 @@ export async function detectLegacyStateMigrations(params: {
     stateDir,
     oauthDir,
   });
-  const pluginPlans = await collectPluginDoctorStateMigrationPlans({
-    cfg: params.cfg,
-    env,
-    stateDir,
-    oauthDir,
-  });
+  const pluginPlans =
+    stateSchemaMigrations.length > 0
+      ? []
+      : await collectPluginDoctorStateMigrationPlans({
+          cfg: params.cfg,
+          env,
+          stateDir,
+          oauthDir,
+        });
 
   const preview: string[] = [];
   if (hasLegacySessions) {
@@ -2657,6 +2769,9 @@ export async function detectLegacyStateMigrations(params: {
   }
   if (legacyKeys.length > 0) {
     preview.push(`- Sessions: canonicalize legacy keys in ${sessionsTargetStorePath}`);
+  }
+  if (hasStaleSessionFiles) {
+    preview.push(`- Sessions: repair migrated transcript paths in ${sessionsTargetStorePath}`);
   }
   if (hasLegacyAgentDir) {
     preview.push(`- Agent dir: ${legacyAgentDir} → ${targetAgentDir}`);
@@ -2666,6 +2781,12 @@ export async function detectLegacyStateMigrations(params: {
   }
   if (hasPluginInstallIndex) {
     preview.push(`- Plugin install index: ${pluginInstallIndexPath} → shared SQLite state`);
+  }
+  if (stateSchemaMigrations.length > 0) {
+    preview.push("- Shared SQLite schema: agent database registry primary key → agent_id,path");
+    preview.push(
+      "- Rerun doctor after shared SQLite schema repair to detect plugin state migrations",
+    );
   }
   if (fileExists(taskRunsSidecarPath)) {
     preview.push(`- Task registry sidecar: ${taskRunsSidecarPath} → shared SQLite state`);
@@ -2694,7 +2815,7 @@ export async function detectLegacyStateMigrations(params: {
       legacyStorePath: sessionsLegacyStorePath,
       targetDir: sessionsTargetDir,
       targetStorePath: sessionsTargetStorePath,
-      hasLegacy: hasLegacySessions || legacyKeys.length > 0,
+      hasLegacy: hasLegacySessions || legacyKeys.length > 0 || hasStaleSessionFiles,
       legacyKeys,
     },
     agentDir: {
@@ -2717,6 +2838,10 @@ export async function detectLegacyStateMigrations(params: {
     pluginInstallIndex: {
       sourcePath: pluginInstallIndexPath,
       hasLegacy: hasPluginInstallIndex,
+    },
+    stateSchema: {
+      hasLegacy: stateSchemaMigrations.length > 0,
+      preview: stateSchemaMigrations.map((migration) => migration.path),
     },
     taskStateSidecars: {
       taskRunsPath: taskRunsSidecarPath,
@@ -2765,6 +2890,19 @@ async function migrateLegacySessions(
     mainKey: detected.targetMainKey,
     scope: detected.targetScope,
   });
+
+  let repairedStaleSessionFiles = false;
+  for (const entry of Object.values(canonicalizedTarget.store)) {
+    const targetSessionFile = resolveStaleLegacySessionFile({
+      entry,
+      legacyDir: detected.sessions.legacyDir,
+      targetDir: detected.sessions.targetDir,
+    });
+    if (targetSessionFile) {
+      entry.sessionFile = targetSessionFile;
+      repairedStaleSessionFiles = true;
+    }
+  }
 
   const merged: Record<string, SessionEntryLike> = { ...canonicalizedTarget.store };
   for (const [key, entry] of Object.entries(canonicalizedLegacy.store)) {
@@ -2838,12 +2976,16 @@ async function migrateLegacySessions(
     if (canonicalizedTarget.legacyKeys.length > 0) {
       changes.push(`Canonicalized ${canonicalizedTarget.legacyKeys.length} legacy session key(s)`);
     }
+    if (repairedStaleSessionFiles) {
+      changes.push("Repaired migrated session transcript paths");
+    }
   }
 
   if (!targetReadable) {
     return { changes, warnings };
   }
 
+  const movedSessionFiles = new Map<string, string>();
   const entries = safeReadDir(detected.sessions.legacyDir);
   for (const entry of entries) {
     if (!entry.isFile()) {
@@ -2853,15 +2995,51 @@ async function migrateLegacySessions(
       continue;
     }
     const from = path.join(detected.sessions.legacyDir, entry.name);
-    const to = path.join(detected.sessions.targetDir, entry.name);
+    let to = path.join(detected.sessions.targetDir, entry.name);
     if (fileExists(to)) {
-      continue;
+      const parsed = path.parse(entry.name);
+      to = path.join(detected.sessions.targetDir, `${parsed.name}.legacy-${now()}${parsed.ext}`);
     }
     try {
       fs.renameSync(from, to);
+      movedSessionFiles.set(path.resolve(from), to);
       changes.push(`Moved ${entry.name} → agents/${detected.targetAgentId}/sessions`);
     } catch (err) {
       warnings.push(`Failed moving ${from}: ${String(err)}`);
+    }
+  }
+
+  if (movedSessionFiles.size > 0) {
+    let rewroteSessionFiles = false;
+    for (const entry of Object.values(merged)) {
+      const rawSessionFile = entry.sessionFile;
+      const legacySessionFile =
+        typeof rawSessionFile === "string"
+          ? path.resolve(detected.sessions.legacyDir, rawSessionFile)
+          : typeof entry.sessionId === "string"
+            ? path.join(detected.sessions.legacyDir, `${entry.sessionId}.jsonl`)
+            : undefined;
+      const movedSessionFile = legacySessionFile
+        ? movedSessionFiles.get(path.resolve(legacySessionFile))
+        : undefined;
+      if (!movedSessionFile) {
+        continue;
+      }
+      entry.sessionFile = movedSessionFile;
+      rewroteSessionFiles = true;
+    }
+    if (rewroteSessionFiles) {
+      const normalized: Record<string, SessionEntry> = {};
+      for (const [key, entry] of Object.entries(merged)) {
+        const normalizedEntry = normalizeSessionEntry(entry);
+        if (normalizedEntry) {
+          normalized[key] = normalizedEntry;
+        }
+      }
+      await saveSessionStore(detected.sessions.targetStorePath, normalized, {
+        skipMaintenance: true,
+      });
+      changes.push("Rewrote migrated session transcript paths");
     }
   }
 
@@ -2968,6 +3146,15 @@ async function runPluginDoctorStateMigrationPlans(params: {
   return { changes, warnings };
 }
 
+function migrateLegacyStateSchema(detected: LegacyStateDetection): {
+  changes: string[];
+  warnings: string[];
+} {
+  return repairOpenClawStateDatabaseSchema({
+    env: { ...process.env, OPENCLAW_STATE_DIR: detected.stateDir },
+  });
+}
+
 export async function runLegacyStateMigrations(params: {
   detected: LegacyStateDetection;
   config?: OpenClawConfig;
@@ -2976,6 +3163,10 @@ export async function runLegacyStateMigrations(params: {
 }): Promise<{ changes: string[]; warnings: string[] }> {
   const now = params.now ?? (() => Date.now());
   const detected = params.detected;
+  const stateSchema = migrateLegacyStateSchema(detected);
+  if (detected.stateSchema.hasLegacy && stateSchema.warnings.length > 0) {
+    return stateSchema;
+  }
   const pluginStateSidecar = await migrateLegacyPluginStateSidecar({
     stateDir: detected.stateDir,
   });
@@ -2991,10 +3182,12 @@ export async function runLegacyStateMigrations(params: {
   const preSessionChannelPlans = await runLegacyMigrationPlans(
     detected.channelPlans.plans.filter((plan) => plan.kind === "plugin-state-import"),
   );
-  const pluginPlans = await runPluginDoctorStateMigrationPlans({
-    detected,
-    config: params.config ?? ({} as OpenClawConfig),
-  });
+  const pluginPlans = detected.stateSchema.hasLegacy
+    ? { changes: [], warnings: [] }
+    : await runPluginDoctorStateMigrationPlans({
+        detected,
+        config: params.config ?? ({} as OpenClawConfig),
+      });
   const sessions = await migrateLegacySessions(detected, now, {
     recoverCorruptTargetStore: params.recoverCorruptTargetStore,
   });
@@ -3009,6 +3202,7 @@ export async function runLegacyStateMigrations(params: {
   );
   return {
     changes: [
+      ...stateSchema.changes,
       ...pluginStateSidecar.changes,
       ...pluginInstallIndex.changes,
       ...taskStateSidecars.changes,
@@ -3021,6 +3215,7 @@ export async function runLegacyStateMigrations(params: {
       ...channelPlans.changes,
     ],
     warnings: [
+      ...stateSchema.warnings,
       ...pluginStateSidecar.warnings,
       ...pluginInstallIndex.warnings,
       ...taskStateSidecars.warnings,
@@ -3305,6 +3500,10 @@ export async function autoMigrateLegacyState(params: {
     homedir: params.homedir,
     log: params.log,
   });
+  const stateDir = resolveStateDir(env, params.homedir ?? os.homedir);
+  const stateSchema = repairOpenClawStateDatabaseSchema({
+    env: { ...env, OPENCLAW_STATE_DIR: stateDir },
+  });
 
   // Canonicalize orphaned session keys regardless of whether legacy migration
   // is needed — the orphan-key bug (#29683) affects all installs with
@@ -3361,6 +3560,7 @@ export async function autoMigrateLegacyState(params: {
     });
     const changes = [
       ...stateDirResult.changes,
+      ...stateSchema.changes,
       ...orphanKeys.changes,
       ...acpSessionMetadata.changes,
       ...pluginStateSidecar.changes,
@@ -3372,6 +3572,7 @@ export async function autoMigrateLegacyState(params: {
     ];
     const warnings = [
       ...stateDirResult.warnings,
+      ...stateSchema.warnings,
       ...orphanKeys.warnings,
       ...acpSessionMetadata.warnings,
       ...pluginStateSidecar.warnings,
@@ -3385,6 +3586,7 @@ export async function autoMigrateLegacyState(params: {
     return {
       migrated:
         stateDirResult.migrated ||
+        stateSchema.changes.length > 0 ||
         orphanKeys.changes.length > 0 ||
         acpSessionMetadata.changes.length > 0 ||
         pluginStateSidecar.changes.length > 0 ||
@@ -3405,16 +3607,19 @@ export async function autoMigrateLegacyState(params: {
     !detected.pluginPlans?.hasLegacy &&
     !detected.pluginStateSidecar.hasLegacy &&
     !detected.pluginInstallIndex.hasLegacy &&
+    !detected.stateSchema.hasLegacy &&
     !detected.taskStateSidecars.hasLegacy &&
     !detected.deliveryQueues.hasLegacy
   ) {
     const changes = [
       ...stateDirResult.changes,
+      ...stateSchema.changes,
       ...orphanKeys.changes,
       ...acpSessionMetadata.changes,
     ];
     const warnings = [
       ...stateDirResult.warnings,
+      ...stateSchema.warnings,
       ...orphanKeys.warnings,
       ...acpSessionMetadata.warnings,
     ];
@@ -3422,6 +3627,7 @@ export async function autoMigrateLegacyState(params: {
     return {
       migrated:
         stateDirResult.migrated ||
+        stateSchema.changes.length > 0 ||
         orphanKeys.changes.length > 0 ||
         acpSessionMetadata.changes.length > 0,
       skipped: false,
@@ -3464,6 +3670,7 @@ export async function autoMigrateLegacyState(params: {
   );
   const changes = [
     ...stateDirResult.changes,
+    ...stateSchema.changes,
     ...orphanKeys.changes,
     ...acpSessionMetadata.changes,
     ...pluginStateSidecar.changes,
@@ -3479,6 +3686,7 @@ export async function autoMigrateLegacyState(params: {
   ];
   const warnings = [
     ...stateDirResult.warnings,
+    ...stateSchema.warnings,
     ...orphanKeys.warnings,
     ...acpSessionMetadata.warnings,
     ...pluginStateSidecar.warnings,
