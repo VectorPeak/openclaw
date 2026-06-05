@@ -722,23 +722,23 @@ function buildParams(
     }
   }
 
-  // OpenRouter provider routing preferences
-  if (model.baseUrl.includes("openrouter.ai") && model.compat?.openRouterRouting) {
-    params.provider = model.compat.openRouterRouting;
+  if (model.baseUrl.includes("openrouter.ai")) {
+    const openRouterRouting = resolveOpenRouterRouting(
+      readOpenAICompletionsRoutingCompatField(model, "openRouterRouting") ??
+        compat.openRouterRouting,
+    );
+    if (openRouterRouting) {
+      params.provider = openRouterRouting;
+    }
   }
 
-  // Vercel AI Gateway provider routing preferences
-  if (model.baseUrl.includes("ai-gateway.vercel.sh") && model.compat?.vercelGatewayRouting) {
-    const routing = model.compat.vercelGatewayRouting;
-    if (routing.only || routing.order) {
-      const gatewayOptions: Record<string, string[]> = {};
-      if (routing.only) {
-        gatewayOptions.only = routing.only;
-      }
-      if (routing.order) {
-        gatewayOptions.order = routing.order;
-      }
-      params.providerOptions = { gateway: gatewayOptions };
+  if (model.baseUrl.includes("ai-gateway.vercel.sh")) {
+    const vercelGatewayRouting = resolveVercelGatewayRouting(
+      readOpenAICompletionsRoutingCompatField(model, "vercelGatewayRouting") ??
+        compat.vercelGatewayRouting,
+    );
+    if (vercelGatewayRouting) {
+      params.providerOptions = { gateway: vercelGatewayRouting };
     }
   }
 
@@ -1491,41 +1491,114 @@ function detectCompat(model: Model<"openai-completions">): ResolvedOpenAIComplet
   };
 }
 
+function resolveOpenRouterRouting(
+  routing: OpenAICompletionsCompat["openRouterRouting"],
+): OpenAICompletionsCompat["openRouterRouting"] | undefined {
+  try {
+    if (!routing || typeof routing !== "object") {
+      return undefined;
+    }
+    const entries = Object.entries(routing).filter(([, value]) => value !== undefined);
+    return entries.length > 0
+      ? (Object.fromEntries(entries) as NonNullable<OpenAICompletionsCompat["openRouterRouting"]>)
+      : undefined;
+  } catch {
+    throw new Error("OpenAI completions OpenRouter routing metadata is unreadable");
+  }
+}
+
+function resolveVercelGatewayRouting(
+  routing: OpenAICompletionsCompat["vercelGatewayRouting"],
+): Record<string, string[]> | undefined {
+  try {
+    const only = routing?.only;
+    const order = routing?.order;
+    const gatewayOptions: Record<string, string[]> = {};
+    if (only) {
+      gatewayOptions.only = only;
+    }
+    if (order) {
+      gatewayOptions.order = order;
+    }
+    return Object.keys(gatewayOptions).length > 0 ? gatewayOptions : undefined;
+  } catch {
+    throw new Error("OpenAI completions Vercel Gateway routing metadata is unreadable");
+  }
+}
+
+function readOpenAICompletionsCompat(
+  model: Model<"openai-completions">,
+): OpenAICompletionsCompat | undefined {
+  try {
+    const compat = model.compat;
+    return compat && typeof compat === "object" ? compat : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readOpenAICompletionsCompatField<K extends keyof OpenAICompletionsCompat>(
+  compat: OpenAICompletionsCompat | undefined,
+  key: K,
+): OpenAICompletionsCompat[K] | undefined {
+  try {
+    return compat?.[key];
+  } catch {
+    return undefined;
+  }
+}
+
+function readOpenAICompletionsRoutingCompatField<
+  K extends "openRouterRouting" | "vercelGatewayRouting",
+>(model: Model<"openai-completions">, key: K): OpenAICompletionsCompat[K] | undefined {
+  try {
+    const compat = model.compat;
+    if (!compat || typeof compat !== "object") {
+      return undefined;
+    }
+    return compat[key];
+  } catch {
+    const label = key === "openRouterRouting" ? "OpenRouter" : "Vercel Gateway";
+    throw new Error(`OpenAI completions ${label} routing metadata is unreadable`);
+  }
+}
+
 /**
  * Get resolved compatibility settings for a model.
  * Uses explicit model.compat if provided, otherwise auto-detects from provider/URL.
  */
 function getCompat(model: Model<"openai-completions">): ResolvedOpenAICompletionsCompat {
   const detected = detectCompat(model);
-  if (!model.compat) {
+  const compat = readOpenAICompletionsCompat(model);
+  if (!compat) {
     return detected;
   }
+  const read = <K extends keyof OpenAICompletionsCompat>(key: K) =>
+    readOpenAICompletionsCompatField(compat, key);
 
   return {
-    supportsStore: model.compat.supportsStore ?? detected.supportsStore,
-    supportsDeveloperRole: model.compat.supportsDeveloperRole ?? detected.supportsDeveloperRole,
-    supportsReasoningEffort:
-      model.compat.supportsReasoningEffort ?? detected.supportsReasoningEffort,
-    supportsUsageInStreaming:
-      model.compat.supportsUsageInStreaming ?? detected.supportsUsageInStreaming,
-    maxTokensField: model.compat.maxTokensField ?? detected.maxTokensField,
-    requiresToolResultName: model.compat.requiresToolResultName ?? detected.requiresToolResultName,
+    supportsStore: read("supportsStore") ?? detected.supportsStore,
+    supportsDeveloperRole: read("supportsDeveloperRole") ?? detected.supportsDeveloperRole,
+    supportsReasoningEffort: read("supportsReasoningEffort") ?? detected.supportsReasoningEffort,
+    supportsUsageInStreaming: read("supportsUsageInStreaming") ?? detected.supportsUsageInStreaming,
+    maxTokensField: read("maxTokensField") ?? detected.maxTokensField,
+    requiresToolResultName: read("requiresToolResultName") ?? detected.requiresToolResultName,
     requiresAssistantAfterToolResult:
-      model.compat.requiresAssistantAfterToolResult ?? detected.requiresAssistantAfterToolResult,
-    requiresThinkingAsText: model.compat.requiresThinkingAsText ?? detected.requiresThinkingAsText,
+      read("requiresAssistantAfterToolResult") ?? detected.requiresAssistantAfterToolResult,
+    requiresThinkingAsText: read("requiresThinkingAsText") ?? detected.requiresThinkingAsText,
     requiresReasoningContentOnAssistantMessages:
-      model.compat.requiresReasoningContentOnAssistantMessages ??
+      read("requiresReasoningContentOnAssistantMessages") ??
       detected.requiresReasoningContentOnAssistantMessages,
-    thinkingFormat: model.compat.thinkingFormat ?? detected.thinkingFormat,
-    openRouterRouting: model.compat.openRouterRouting ?? {},
-    vercelGatewayRouting: model.compat.vercelGatewayRouting ?? detected.vercelGatewayRouting,
-    zaiToolStream: model.compat.zaiToolStream ?? detected.zaiToolStream,
-    supportsStrictMode: model.compat.supportsStrictMode ?? detected.supportsStrictMode,
-    cacheControlFormat: model.compat.cacheControlFormat ?? detected.cacheControlFormat,
+    thinkingFormat: read("thinkingFormat") ?? detected.thinkingFormat,
+    openRouterRouting: read("openRouterRouting") ?? {},
+    vercelGatewayRouting: read("vercelGatewayRouting") ?? detected.vercelGatewayRouting,
+    zaiToolStream: read("zaiToolStream") ?? detected.zaiToolStream,
+    supportsStrictMode: read("supportsStrictMode") ?? detected.supportsStrictMode,
+    cacheControlFormat: read("cacheControlFormat") ?? detected.cacheControlFormat,
     sendSessionAffinityHeaders:
-      model.compat.sendSessionAffinityHeaders ?? detected.sendSessionAffinityHeaders,
-    supportsPromptCacheKey: model.compat.supportsPromptCacheKey ?? detected.supportsPromptCacheKey,
+      read("sendSessionAffinityHeaders") ?? detected.sendSessionAffinityHeaders,
+    supportsPromptCacheKey: read("supportsPromptCacheKey") ?? detected.supportsPromptCacheKey,
     supportsLongCacheRetention:
-      model.compat.supportsLongCacheRetention ?? detected.supportsLongCacheRetention,
+      read("supportsLongCacheRetention") ?? detected.supportsLongCacheRetention,
   };
 }

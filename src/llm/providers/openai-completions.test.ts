@@ -306,6 +306,122 @@ describe("OpenAI-compatible completions params", () => {
     ]);
   });
 
+  it("falls back to detected tool compat when model compat metadata is unreadable", async () => {
+    const healthyTool = {
+      name: "healthy_tool",
+      description: "Still available",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+        },
+        required: ["query"],
+      },
+    };
+    const compatGetterModel = createModel(32_000);
+    Object.defineProperty(compatGetterModel, "compat", {
+      enumerable: true,
+      get() {
+        throw new Error("revoked compat");
+      },
+    });
+    const nestedCompatModel = {
+      ...createModel(32_000),
+      compat: {},
+    } satisfies Model<"openai-completions">;
+    Object.defineProperty(nestedCompatModel.compat, "supportsStrictMode", {
+      enumerable: true,
+      get() {
+        throw new Error("revoked strict mode");
+      },
+    });
+
+    for (const hostileModel of [compatGetterModel, nestedCompatModel]) {
+      let capturedTools: unknown;
+      const stream = streamOpenAICompletions(
+        hostileModel,
+        {
+          ...context,
+          tools: [healthyTool],
+        },
+        {
+          apiKey: "sk-test",
+          onPayload(payload) {
+            capturedTools = (payload as { tools?: unknown }).tools;
+            throw new Error("stop before network");
+          },
+        },
+      );
+
+      const result = await stream.result();
+
+      expect(result.stopReason).toBe("error");
+      expect(capturedTools).toEqual([
+        {
+          type: "function",
+          function: {
+            name: "healthy_tool",
+            description: "Still available",
+            parameters: {
+              type: "object",
+              properties: {
+                query: { type: "string" },
+              },
+              required: ["query"],
+            },
+            strict: false,
+          },
+        },
+      ]);
+    }
+  });
+
+  it("fails closed when OpenRouter routing metadata is unreadable", async () => {
+    const compatGetterModel = {
+      ...createModel(32_000),
+      provider: "openrouter",
+      baseUrl: "https://openrouter.ai/api/v1",
+    } satisfies Model<"openai-completions">;
+    Object.defineProperty(compatGetterModel, "compat", {
+      enumerable: true,
+      get() {
+        throw new Error("revoked compat");
+      },
+    });
+    const nestedRoutingModel = {
+      ...createModel(32_000),
+      provider: "openrouter",
+      baseUrl: "https://openrouter.ai/api/v1",
+      compat: {},
+    } satisfies Model<"openai-completions">;
+    Object.defineProperty(nestedRoutingModel.compat, "openRouterRouting", {
+      enumerable: true,
+      get() {
+        throw new Error("revoked routing");
+      },
+    });
+
+    for (const hostileModel of [compatGetterModel, nestedRoutingModel]) {
+      let sawPayload = false;
+      const stream = streamOpenAICompletions(hostileModel, context, {
+        apiKey: "sk-test",
+        onPayload() {
+          sawPayload = true;
+          throw new Error("stop before network");
+        },
+      });
+
+      const result = await stream.result();
+
+      expect(sawPayload).toBe(false);
+      expect(result.stopReason).toBe("error");
+      expect(result.errorMessage).toContain(
+        "OpenAI completions OpenRouter routing metadata is unreadable",
+      );
+      expect(result.errorMessage).not.toContain("revoked");
+    }
+  });
+
   it("fails closed when forced OpenAI completions tool choice is filtered out", async () => {
     const revokedSchema = Proxy.revocable({ type: "object", properties: {} }, {});
     revokedSchema.revoke();
