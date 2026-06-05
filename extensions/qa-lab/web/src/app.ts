@@ -18,8 +18,16 @@ import {
   type UiState,
   renderQaLabUi,
 } from "./ui-render.js";
+
+function fetchQaLabRoute(path: string, init?: RequestInit): Promise<Response> {
+  if (!path.startsWith("/") || path.startsWith("//")) {
+    throw new Error(`QA Lab web fetch path must be same-origin: ${path}`);
+  }
+  return window.fetch(path, init);
+}
+
 async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(path);
+  const response = await fetchQaLabRoute(path);
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText}`);
   }
@@ -27,7 +35,7 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 async function getJsonNoStore<T>(path: string): Promise<T> {
-  const response = await fetch(path, { cache: "no-store" });
+  const response = await fetchQaLabRoute(path, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText}`);
   }
@@ -35,7 +43,7 @@ async function getJsonNoStore<T>(path: string): Promise<T> {
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetchQaLabRoute(path, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
