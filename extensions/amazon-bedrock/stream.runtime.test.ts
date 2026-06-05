@@ -1,6 +1,6 @@
 // Amazon Bedrock tests cover stream plugin behavior.
 import { describe, expect, it } from "vitest";
-import { testing } from "./stream.runtime.js";
+import { streamBedrock, testing } from "./stream.runtime.js";
 
 function bedrockModel(overrides: Record<string, unknown>) {
   return {
@@ -88,6 +88,42 @@ describe("Bedrock profile endpoint resolution", () => {
         testing.hasConfiguredBedrockProfile({ profile: "prod-bedrock" }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("Bedrock stream output identity", () => {
+  it("keeps stream errors reachable when setup model metadata is unreadable", async () => {
+    const hostileModel = bedrockModel({});
+    for (const key of ["provider", "id", "baseUrl"] as const) {
+      Object.defineProperty(hostileModel, key, {
+        enumerable: true,
+        get() {
+          throw new Error(`revoked ${key}`);
+        },
+      });
+    }
+    let sawPayload = false;
+
+    const stream = streamBedrock(
+      hostileModel,
+      {
+        messages: [{ role: "user", content: "hello", timestamp: 0 }],
+      } as never,
+      {
+        onPayload: () => {
+          sawPayload = true;
+        },
+      },
+    );
+
+    const result = await stream.result();
+
+    expect(sawPayload).toBe(false);
+    expect(result.stopReason).toBe("error");
+    expect(result.api).toBe("bedrock-converse-stream");
+    expect(result.provider).toBe("unknown");
+    expect(result.model).toBe("unknown");
+    expect(result.errorMessage).toBe("revoked baseUrl");
   });
 });
 
