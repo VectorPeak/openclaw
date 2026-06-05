@@ -4,6 +4,7 @@
  * Harnesses use this to trigger core research capture and plugin agent_end hooks
  * either fire-and-forget or awaited during tests/shutdown.
  */
+import { formatErrorMessage } from "../../infra/errors.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { runSkillResearchAutoCapture } from "../../skills/research/autocapture.js";
 import {
@@ -24,7 +25,7 @@ async function runCoreAgentEndSideEffects(params: AgentEndSideEffectsParams): Pr
     });
   } catch (error) {
     // Side effects are observational; failures must not change the completed run result.
-    log.warn(`skill research auto-capture failed: ${String(error)}`);
+    log.warn(`skill research auto-capture failed: ${formatErrorMessage(error)}`);
   }
 }
 

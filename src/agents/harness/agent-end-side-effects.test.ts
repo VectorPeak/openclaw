@@ -20,6 +20,23 @@ const mockAutoCapture = vi.mocked(runSkillResearchAutoCapture);
 const mockAwaitAgentEndHook = vi.mocked(awaitAgentHarnessAgentEndHook);
 const mockRunAgentEndHook = vi.mocked(runAgentHarnessAgentEndHook);
 
+function createHostileThrownValue(): unknown {
+  return new Proxy(
+    {},
+    {
+      get() {
+        throw new Error("property trap");
+      },
+      getPrototypeOf() {
+        throw new Error("prototype trap");
+      },
+      ownKeys() {
+        throw new Error("ownKeys trap");
+      },
+    },
+  );
+}
+
 describe("agent end side effects", () => {
   beforeEach(() => {
     mockAutoCapture.mockReset();
@@ -116,6 +133,27 @@ describe("agent end side effects", () => {
         workspaceDir: "/workspace",
       },
     });
+    expect(mockAwaitAgentEndHook).toHaveBeenCalledTimes(1);
+  });
+
+  it("still runs agent_end hooks when Skill Research auto-capture throws a hostile value", async () => {
+    mockAutoCapture.mockImplementationOnce(async () => {
+      throw createHostileThrownValue();
+    });
+
+    await expect(
+      awaitAgentEndSideEffects({
+        event: {
+          messages: [],
+          success: true,
+        },
+        ctx: {
+          runId: "run-1",
+          workspaceDir: "/workspace",
+        },
+      }),
+    ).resolves.toBeUndefined();
+
     expect(mockAwaitAgentEndHook).toHaveBeenCalledTimes(1);
   });
 });
