@@ -136,7 +136,8 @@ steps:
               value: ""
             - set: imageReplyText
               value: ""
-            - call: runAgentPrompt
+            - call: startAgentRun
+              saveAs: imageRun
               args:
                 - ref: env
                 - sessionKey:
@@ -145,6 +146,12 @@ steps:
                     expr: config.imagePrompt
                   timeoutMs:
                     expr: liveTurnTimeoutMs(env, config.imageTurnTimeoutMs)
+            - call: waitForAgentRun
+              saveAs: imageWait
+              args:
+                - ref: env
+                - expr: "imageRun.runId"
+                - expr: liveTurnTimeoutMs(env, config.imageTurnTimeoutMs)
             - try:
                 actions:
                   - call: resolveGeneratedImagePath
