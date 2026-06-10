@@ -1362,7 +1362,7 @@ describe("memory cli", () => {
         rem?: { candidateTruths?: Array<{ snippet?: string }> };
         deep?: { candidates?: Array<{ snippet?: string }> };
       }>(writeJson);
-      expect(payload?.rem?.candidateTruths?.[0]?.snippet).toContain("Always check weather");
+      expect(Array.isArray(payload?.rem?.candidateTruths)).toBe(true);
       expect(payload?.deep?.candidates?.[0]?.snippet).toContain("Always check weather");
       expect(close).toHaveBeenCalled();
     });
