@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { resolveAgentDir, resolveSessionAgentIds } from "openclaw/plugin-sdk/agent-runtime";
 import { parseStrictPositiveInteger } from "openclaw/plugin-sdk/number-runtime";
 import type { PluginCommandContext, PluginCommandResult } from "openclaw/plugin-sdk/plugin-entry";
+import { parseAgentSessionKey } from "openclaw/plugin-sdk/routing";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { resolveCodexAppServerAuthProfileIdForAgent } from "./app-server/auth-bridge.js";
 import { CODEX_CONTROL_METHODS, type CodexControlMethod } from "./app-server/capabilities.js";
@@ -1488,10 +1489,13 @@ async function resolveCodexDiagnosticsTargets(
     if (!session.sessionId) {
       continue;
     }
+    const inventoryAgentId = session.sessionKey
+      ? parseAgentSessionKey(session.sessionKey)?.agentId
+      : undefined;
     const identity = sessionBindingIdentity({
       sessionId: session.sessionId,
       sessionKey: session.sessionKey,
-      agentId: ctx.agentId,
+      agentId: inventoryAgentId ?? ctx.agentId,
       config: ctx.config,
     });
     candidates.push({

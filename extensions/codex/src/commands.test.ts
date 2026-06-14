@@ -2799,6 +2799,7 @@ describe("codex command", () => {
       createContext("diagnostics multi-session repro", undefined, {
         senderId: "user-1",
         channel: "whatsapp",
+        agentId: "first",
         sessionKey: "agent:first:whatsapp:one",
         sessionId: "session-one",
         diagnosticsSessions,
@@ -2820,6 +2821,7 @@ describe("codex command", () => {
         createContext(`diagnostics confirm ${token}`, undefined, {
           senderId: "user-1",
           channel: "whatsapp",
+          agentId: "first",
           sessionKey: "agent:first:whatsapp:one",
           sessionId: "session-one",
           diagnosticsSessions,
@@ -2872,6 +2874,37 @@ describe("codex command", () => {
       sessionId: "session-two",
       sessionKey: "agent:second:discord:two",
     });
+  });
+
+  it("uses the host agent for diagnostics inventory sessions with unscoped keys", async () => {
+    await writeTestBinding(
+      {
+        kind: "session",
+        agentId: "first",
+        sessionId: "session-global",
+        sessionKey: "global",
+      },
+      { threadId: "thread-global", cwd: "/repo" },
+    );
+
+    const request = await handleCodexCommand(
+      createContext("diagnostics global repro", undefined, {
+        agentId: "first",
+        sessionId: undefined,
+        diagnosticsSessions: [
+          {
+            sessionKey: "global",
+            sessionId: "session-global",
+            channel: "telegram",
+          },
+        ],
+      }),
+      { deps: createDeps() },
+    );
+
+    expect(request.text).toContain("Codex runtime thread detected.");
+    expect(request.text).toContain("OpenClaw session key: `global`");
+    expect(request.text).toContain("Codex thread id: `thread-global`");
   });
 
   it("requires an owner for Codex diagnostics feedback uploads", async () => {
