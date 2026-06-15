@@ -1629,34 +1629,22 @@ describe("dispatchReplyFromConfig", () => {
       expected: false,
     },
   ])("resolves active reply bypass for $name", (params) => {
-    const activeOperation = createReplyOperation({
-      sessionKey: params.sessionKey,
-      sessionId: "active-session",
-      resetTriggered: false,
-      routeThreadId: params.activeRouteThreadId,
-    });
-    activeOperation.setPhase("running");
-
-    try {
-      expect(
-        dispatchFromConfigTesting.shouldLetSlackRoutedThreadBypassBusyReplyOperation({
-          activeOperation,
-          ctx: buildTestCtx({
-            Provider: params.provider,
-            Surface: params.provider,
-            OriginatingChannel: params.provider,
-            OriginatingTo: params.provider === "slack" ? "user:U1" : "user:1",
-            ChatType: params.chatType,
-            SessionKey: params.sessionKey,
-            MessageThreadId: params.messageThreadId,
-            BodyForAgent: params.name,
-          }),
-          routeThreadId: params.routeThreadId,
+    expect(
+      dispatchFromConfigTesting.shouldLetSlackRoutedThreadBypassBusyReplyOperation({
+        activeOperation: { routeThreadId: params.activeRouteThreadId } as never,
+        ctx: buildTestCtx({
+          Provider: params.provider,
+          Surface: params.provider,
+          OriginatingChannel: params.provider,
+          OriginatingTo: params.provider === "slack" ? "user:U1" : "user:1",
+          ChatType: params.chatType,
+          SessionKey: params.sessionKey,
+          MessageThreadId: params.messageThreadId,
+          BodyForAgent: params.name,
         }),
-      ).toBe(params.expected);
-    } finally {
-      activeOperation.complete();
-    }
+        routeThreadId: params.routeThreadId,
+      }),
+    ).toBe(params.expected);
   });
 
   it("routes when OriginatingChannel differs from Provider", async () => {
