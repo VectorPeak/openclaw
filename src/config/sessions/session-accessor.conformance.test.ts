@@ -38,6 +38,7 @@ import {
   loadSqliteTranscriptEvents,
   loadSqliteTranscriptEventsSync,
   patchSqliteSessionEntry,
+  persistSqliteSessionTranscriptTurn,
   publishSqliteTranscriptUpdate,
   readSqliteSessionUpdatedAt,
   replaceSqliteSessionEntry,
@@ -607,3 +608,166 @@ describe.each([fileBackedAdapter, sqliteAdapter])(
     });
   },
 );
+
+describe("sqlite transcript turn persistence", () => {
+  let paths: TestPaths;
+
+  beforeEach(() => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-sqlite-turn-"));
+    paths = {
+      sqlitePath: path.join(tempDir, "openclaw-agent.sqlite"),
+      stateDir: path.join(tempDir, "state"),
+      storePath: path.join(tempDir, "sessions.json"),
+      tempDir,
+      transcriptPath: path.join(tempDir, "session.jsonl"),
+    };
+  });
+
+  afterEach(() => {
+    closeOpenClawAgentDatabasesForTest();
+    closeOpenClawStateDatabaseForTest();
+    fs.rmSync(paths.tempDir, { recursive: true, force: true });
+  });
+
+  it("persists multiple messages, touches the entry, and publishes after commit", async () => {
+    const entryScope = sqliteAdapter.entryScope(paths);
+    const scope = sqliteAdapter.transcriptScope(paths, "session-turn");
+    const updates: unknown[] = [];
+    let rowsVisibleDuringUpdate = 0;
+    const unsubscribe = onSessionTranscriptUpdate((update) => {
+      updates.push(update);
+      rowsVisibleDuringUpdate = loadSqliteTranscriptEventsSync(scope).length;
+    });
+
+    await upsertSqliteSessionEntry(entryScope, {
+      sessionId: "session-turn",
+      updatedAt: 10,
+    });
+    const result = await persistSqliteSessionTranscriptTurn(scope, {
+      cwd: paths.tempDir,
+      touchSessionEntry: true,
+      messages: [
+        {
+          message: { role: "user", content: "hello" },
+          now: Date.parse("2026-01-01T00:00:00.000Z"),
+        },
+        {
+          message: { role: "assistant", content: "hi" },
+          now: Date.parse("2026-01-01T00:00:01.000Z"),
+        },
+      ],
+    });
+    unsubscribe();
+
+    expect(result).toMatchObject({
+      appendedCount: 2,
+      messages: [
+        expect.objectContaining({ appended: true, message: { role: "user", content: "hello" } }),
+        expect.objectContaining({
+          appended: true,
+          message: { role: "assistant", content: "hi" },
+        }),
+      ],
+      sessionFile: paths.transcriptPath,
+    });
+    await expect(loadSqliteTranscriptEvents(scope)).resolves.toEqual([
+      expect.objectContaining({ type: "session" }),
+      expect.objectContaining({
+        id: result.messages[0]?.messageId,
+        parentId: null,
+        type: "message",
+      }),
+      expect.objectContaining({
+        id: result.messages[1]?.messageId,
+        parentId: result.messages[0]?.messageId,
+        type: "message",
+      }),
+    ]);
+    expect(loadSqliteSessionEntry(entryScope)).toEqual(
+      expect.objectContaining({
+        sessionFile: paths.transcriptPath,
+        sessionId: "session-turn",
+        updatedAt: expect.any(Number),
+      }),
+    );
+    expect(updates).toEqual([
+      expect.objectContaining({
+        agentId: "main",
+        message: { role: "assistant", content: "hi" },
+        messageId: result.messages[1]?.messageId,
+        sessionFile: paths.transcriptPath,
+        sessionKey: scope.sessionKey,
+      }),
+    ]);
+    expect(rowsVisibleDuringUpdate).toBe(3);
+  });
+
+  it("rejects expected-session rebound without appending messages", async () => {
+    const entryScope = sqliteAdapter.entryScope(paths);
+    const reboundScope = sqliteAdapter.transcriptScope(paths, "old-session");
+    const updates: unknown[] = [];
+    const unsubscribe = onSessionTranscriptUpdate((update) => {
+      updates.push(update);
+    });
+
+    await upsertSqliteSessionEntry(entryScope, {
+      sessionFile: paths.transcriptPath,
+      sessionId: "current-session",
+      updatedAt: 10,
+    });
+    const seededEntry = loadSqliteSessionEntry(entryScope);
+    const result = await persistSqliteSessionTranscriptTurn(reboundScope, {
+      expectedSessionId: "old-session",
+      touchSessionEntry: true,
+      messages: [
+        {
+          message: { role: "assistant", content: "stale" },
+        },
+      ],
+    });
+    unsubscribe();
+
+    expect(result).toMatchObject({
+      appendedCount: 0,
+      messages: [],
+      rejectedReason: "session-rebound",
+      sessionEntry: expect.objectContaining({ sessionId: "current-session" }),
+      sessionFile: paths.transcriptPath,
+    });
+    await expect(loadSqliteTranscriptEvents(reboundScope)).resolves.toEqual([]);
+    expect(loadSqliteSessionEntry(entryScope)).toEqual(seededEntry);
+    expect(updates).toEqual([]);
+  });
+
+  it("materializes a touched session entry for a fresh transcript turn", async () => {
+    const entryScope = sqliteAdapter.entryScope(paths);
+    const scope = sqliteAdapter.transcriptScope(paths, "fresh-session");
+
+    const result = await persistSqliteSessionTranscriptTurn(scope, {
+      touchSessionEntry: true,
+      updateMode: "none",
+      messages: [
+        {
+          message: { role: "user", content: "first turn" },
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      appendedCount: 1,
+      sessionEntry: expect.objectContaining({
+        sessionFile: paths.transcriptPath,
+        sessionId: "fresh-session",
+        updatedAt: expect.any(Number),
+      }),
+    });
+    expect(loadSqliteSessionEntry(entryScope)).toEqual(result.sessionEntry);
+    await expect(loadSqliteTranscriptEvents(scope)).resolves.toEqual([
+      expect.objectContaining({ type: "session" }),
+      expect.objectContaining({
+        id: result.messages[0]?.messageId,
+        type: "message",
+      }),
+    ]);
+  });
+});
