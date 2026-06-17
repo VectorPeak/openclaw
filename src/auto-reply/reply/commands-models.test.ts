@@ -421,7 +421,7 @@ describe("handleModelsCommand", () => {
         agentDir: "/tmp/worker-agent",
         workspaceDir: "/tmp/spawned-workspace",
       }),
-    ).toBe(2);
+    ).toBe(1);
   });
 
   it("shows plugin-normalized allowlist models in browse data", async () => {
@@ -829,7 +829,7 @@ describe("handleModelsCommand", () => {
       countAuthCheckerCallsMatching({
         agentDir: "/tmp/worker-agent",
       }),
-    ).toBe(2);
+    ).toBe(1);
   });
 
   it("preserves explicit agentDir and workspaceDir overrides for provider data auth filtering", async () => {
@@ -865,7 +865,7 @@ describe("handleModelsCommand", () => {
         agentDir: "/tmp/override-agent",
         workspaceDir: "/tmp/override-workspace",
       }),
-    ).toBe(2);
+    ).toBe(1);
   });
 
   it("keeps the telegram provider picker browse-only", async () => {
