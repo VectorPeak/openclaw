@@ -1129,9 +1129,13 @@ internal fun gatewayRecoveryUiState(
     connectSettling -> GatewayRecoveryUiState.Finishing
     gatewayStatusLooksLikePairing(statusText) -> GatewayRecoveryUiState.Pairing
     gatewayStatusLooksLikePartialConnect(statusText) -> GatewayRecoveryUiState.Finishing
-    nodeCapabilityApprovalState == GatewayNodeApprovalState.Loading -> GatewayRecoveryUiState.Finishing
+    nodeCapabilityApprovalState == GatewayNodeApprovalState.Loading &&
+      gatewayStatusLooksLikeConnected(statusText) -> GatewayRecoveryUiState.Finishing
     else -> GatewayRecoveryUiState.Failed
   }
+
+internal fun gatewayStatusLooksLikeConnected(statusText: String): Boolean =
+  gatewayStatusForDisplay(statusText).equals("Connected", ignoreCase = true)
 
 /** Detects gateway-approved states where the Android node is still coming online. */
 internal fun gatewayStatusLooksLikePartialConnect(statusText: String): Boolean {
@@ -1231,7 +1235,10 @@ private fun recoveryGatewayDetail(
       "Gateway paired. Waiting for operator access."
     } else if (gatewayStatusLooksLikePairing(statusText)) {
       "Gateway approval is in progress. OpenClaw will retry automatically."
-    } else if (nodeCapabilityApprovalState == GatewayNodeApprovalState.Loading) {
+    } else if (
+      nodeCapabilityApprovalState == GatewayNodeApprovalState.Loading &&
+        gatewayStatusLooksLikeConnected(statusText)
+    ) {
       "Gateway paired. Checking node capability approval."
     } else {
       "Gateway unreachable"
