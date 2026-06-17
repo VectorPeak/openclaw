@@ -769,6 +769,20 @@ describe("toStreamingMarkdownHtml", () => {
     expect(code?.textContent).toBe(blockArt);
   });
 
+  it("truncates oversized streaming raw block art before rendering", () => {
+    const line = "  ▀▀▀▀  ";
+    const blockArt = Array.from({ length: 20_000 }, () => line).join("\n");
+    const html = toStreamingMarkdownHtml(blockArt);
+    const fragment = htmlFragment(html);
+    const code = fragment.querySelector("pre code.markdown-block-art");
+    const copy = fragment.querySelector<HTMLButtonElement>(".code-block-copy");
+
+    expect(code?.textContent).toContain("… truncated");
+    expect(code?.textContent).toContain(`showing first 140000`);
+    expect(code?.textContent?.length).toBeLessThan(blockArt.length);
+    expect(copy?.dataset.code).toBe(code?.textContent);
+  });
+
   it("renders completed block prefixes as markdown and keeps the open tail plain", () => {
     const html = toStreamingMarkdownHtml("## Done\n\nworking **tail");
 

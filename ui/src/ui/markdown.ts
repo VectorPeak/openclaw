@@ -535,10 +535,18 @@ function normalizeMarkdownInput(markdownLocal: string): string {
     return "";
   }
   const truncated = truncateText(input, MARKDOWN_CHAR_LIMIT);
-  const suffix = truncated.truncated
+  return appendMarkdownTruncationNotice(truncated).replace(/\r\n?/g, "\n");
+}
+
+function appendMarkdownTruncationNotice(truncated: {
+  text: string;
+  truncated: boolean;
+  total: number;
+}): string {
+  const notice = truncated.truncated
     ? `\n\n… truncated (${truncated.total} chars, showing first ${truncated.text.length}).`
     : "";
-  return `${truncated.text}${suffix}`.replace(/\r\n?/g, "\n");
+  return `${truncated.text}${notice}`;
 }
 
 export function isMarkdownBlockArtText(value: string): boolean {
@@ -714,8 +722,12 @@ function codeClassAttribute(lang: string, highlighted: string): string {
   return classes.length > 0 ? ` class="${escapeHtml(classes.join(" "))}"` : "";
 }
 
-function renderCodeElement(text: string, lang: string): string {
-  if (isMarkdownBlockArtText(text)) {
+function renderCodeElement(
+  text: string,
+  lang: string,
+  options: { blockArt?: boolean } = {},
+): string {
+  if (options.blockArt || isMarkdownBlockArtText(text)) {
     return `<pre><code class="markdown-block-art">${escapeHtml(text)}</code></pre>`;
   }
   const highlighted = highlightCode(text, lang);
@@ -723,8 +735,13 @@ function renderCodeElement(text: string, lang: string): string {
   return `<pre><code${classAttr}>${highlighted}</code></pre>`;
 }
 
-function renderCodeBlock(text: string, lang: string, env: unknown): string {
-  const codeBlock = renderCodeElement(text, lang);
+function renderCodeBlock(
+  text: string,
+  lang: string,
+  env: unknown,
+  options: { blockArt?: boolean } = {},
+): string {
+  const codeBlock = renderCodeElement(text, lang, options);
   if (!shouldRenderCodeBlockCopy(env)) {
     return codeBlock;
   }
@@ -1048,11 +1065,10 @@ export function toSanitizedMarkdownHtml(
     }
   }
   const truncated = truncateText(renderInput, MARKDOWN_CHAR_LIMIT);
-  const suffix = truncated.truncated
-    ? `\n\n… truncated (${truncated.total} chars, showing first ${truncated.text.length}).`
-    : "";
   if (isMarkdownBlockArtText(truncated.text)) {
-    const rendered = renderCodeBlock(`${truncated.text}${suffix}`, "", renderOptions);
+    const rendered = renderCodeBlock(appendMarkdownTruncationNotice(truncated), "", renderOptions, {
+      blockArt: true,
+    });
     const sanitized = DOMPurify.sanitize(rendered, sanitizeOptions);
     if (input.length <= MARKDOWN_CACHE_MAX_CHARS) {
       setCachedMarkdown(cacheKey, sanitized);
@@ -1063,7 +1079,7 @@ export function toSanitizedMarkdownHtml(
     // Large plain-text replies should stay readable without inheriting the
     // capped code-block chrome, while still preserving whitespace for logs
     // and other structured text that commonly trips the parse guard.
-    const html = toEscapedPlainTextHtml(`${truncated.text}${suffix}`);
+    const html = toEscapedPlainTextHtml(appendMarkdownTruncationNotice(truncated));
     const sanitized = DOMPurify.sanitize(html, sanitizeOptions);
     if (input.length <= MARKDOWN_CACHE_MAX_CHARS) {
       setCachedMarkdown(cacheKey, sanitized);
@@ -1072,11 +1088,11 @@ export function toSanitizedMarkdownHtml(
   }
   let rendered: string;
   try {
-    rendered = md.render(`${truncated.text}${suffix}`, renderOptions);
+    rendered = md.render(appendMarkdownTruncationNotice(truncated), renderOptions);
   } catch (err) {
     // Fall back to escaped plain text when md.render() throws (#36213).
     console.warn("[markdown] md.render failed, falling back to plain text:", err);
-    const escaped = escapeHtml(`${truncated.text}${suffix}`);
+    const escaped = escapeHtml(appendMarkdownTruncationNotice(truncated));
     rendered = `<pre class="code-block">${escaped}</pre>`;
   }
   const sanitized = DOMPurify.sanitize(rendered, sanitizeOptions);
@@ -1104,9 +1120,15 @@ export function toStreamingMarkdownHtml(
 ): string {
   const rawInput = stripUnsupportedCitationControlMarkers(markdownLocal).replace(/\r\n?/g, "\n");
   if (isMarkdownBlockArtText(rawInput)) {
+    const truncated = truncateText(rawInput, MARKDOWN_CHAR_LIMIT);
     installHooks();
     return DOMPurify.sanitize(
-      renderCodeBlock(rawInput, "", normalizeMarkdownRenderOptions(options)),
+      renderCodeBlock(
+        appendMarkdownTruncationNotice(truncated),
+        "",
+        normalizeMarkdownRenderOptions(options),
+        { blockArt: true },
+      ),
       sanitizeOptions,
     );
   }
