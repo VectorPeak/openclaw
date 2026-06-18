@@ -345,7 +345,9 @@ export async function startOrResumeThread(params: {
   const webSearchThreadConfigFingerprint = fingerprintJsonObject(webSearchPlan.threadConfig);
   const networkProxyConfigFingerprint = params.appServer.networkProxy?.configFingerprint;
   const contextEngineBinding = lifecycleTiming.measureSync("context-engine-binding", () =>
-    buildContextEngineBinding(params.params, params.contextEngineProjection),
+    buildContextEngineBinding(params.params, params.contextEngineProjection, {
+      agentId: params.agentId,
+    }),
   );
   const userMcpServersConfigPatch =
     params.userMcpServersEnabled === false
@@ -968,6 +970,7 @@ function isTransientWebSearchRestriction(
 export function buildContextEngineBinding(
   params: EmbeddedRunAttemptParams,
   projection?: CodexContextEngineThreadBootstrapProjection,
+  options?: { agentId?: string },
 ): CodexAppServerContextEngineBinding | undefined {
   const contextEngine = isActiveHarnessContextEngine(params.contextEngine)
     ? params.contextEngine
@@ -985,7 +988,10 @@ export function buildContextEngineBinding(
       engineVersion: contextEngine.info.version,
       ownsCompaction: contextEngine.info.ownsCompaction === true,
       turnMaintenanceMode: contextEngine.info.turnMaintenanceMode,
-      citationsMode: resolveContextEngineCitationsMode(params.config, params.agentId),
+      citationsMode: resolveContextEngineCitationsMode(
+        params.config,
+        options?.agentId ?? params.agentId,
+      ),
       contextTokenBudget: params.contextTokenBudget,
       projectionMaxChars: resolveCodexContextEngineProjectionMaxChars({
         contextTokenBudget: params.contextTokenBudget,

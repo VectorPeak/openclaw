@@ -967,6 +967,7 @@ export async function runCodexAppServerAttempt(
           expectedBinding: buildContextEngineBinding(
             buildActiveRunAttemptParams(),
             contextEngineProjection,
+            { agentId: sessionAgentId },
           ),
           projection: contextEngineProjection,
           dynamicToolsFingerprint: codexDynamicToolsFingerprint(toolBridge.specs),

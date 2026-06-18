@@ -1328,6 +1328,43 @@ describe("Codex app-server thread lifecycle bindings", () => {
     expect(savedBinding?.contextEngine?.policyFingerprint).toContain('"citationsMode":"on"');
   });
 
+  it("binds context-engine citations to the lifecycle agent when attempt params omit it", async () => {
+    const sessionFile = path.join(tempDir, "session.jsonl");
+    const workspaceDir = path.join(tempDir, "workspace");
+    const params = createParams(sessionFile, workspaceDir);
+    params.agentId = undefined;
+    params.sessionKey = "agent:writer:session-1";
+    params.contextEngine = {
+      info: { id: "lossless-claw", name: "Lossless Claw", ownsCompaction: true },
+      assemble: vi.fn(),
+      compact: vi.fn(),
+    } as never;
+    params.config = {
+      agents: {
+        defaults: { memory: { citations: "on" } },
+        list: [{ id: "writer", memory: { citations: "off" } }],
+      },
+    } as never;
+    const request = vi.fn(async (method: string) => {
+      if (method === "thread/start") {
+        return threadStartResult("thread-writer");
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    await startOrResumeThread({
+      client: { request } as never,
+      params,
+      agentId: "writer",
+      cwd: workspaceDir,
+      dynamicTools: [],
+      appServer: createThreadLifecycleAppServerOptions(),
+    });
+
+    const savedBinding = await readCodexAppServerBinding(sessionFile);
+    expect(savedBinding?.contextEngine?.policyFingerprint).toContain('"citationsMode":"off"');
+  });
+
   it("keeps the previous dynamic tool fingerprint for transient no-tool maintenance turns", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
