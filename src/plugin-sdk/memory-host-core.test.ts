@@ -211,6 +211,11 @@ describe("memory-host-core helpers", () => {
         "# Writer Dream Diary\n",
         "utf8",
       );
+      await fs.writeFile(
+        path.join(workspaceDir, "memory", ".dreams", "legacy-unscoped.md"),
+        "# Legacy Dream Artifact\n",
+        "utf8",
+      );
       await appendMemoryHostEvent(
         workspaceDir,
         {
@@ -272,6 +277,11 @@ describe("memory-host-core helpers", () => {
       ).toEqual(["writer"]);
       expect(
         allArtifacts.some((artifact) => artifact.relativePath === "memory/.dreams/events.jsonl"),
+      ).toBe(false);
+      expect(
+        allArtifacts.some(
+          (artifact) => artifact.relativePath === "memory/.dreams/legacy-unscoped.md",
+        ),
       ).toBe(false);
     } finally {
       await fs.rm(fixtureRoot, { recursive: true, force: true });

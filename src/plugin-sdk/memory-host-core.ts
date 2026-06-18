@@ -42,6 +42,10 @@ function resolveArtifactAgentIds(
 ): string[] | null {
   const match = /^memory\/\.dreams\/agents\/([^/]+)\//.exec(relativePath);
   if (!match?.[1]) {
+    if (relativePath.startsWith("memory/.dreams/")) {
+      // Private artifacts without a recognized owner must not cross an agent boundary.
+      return null;
+    }
     return workspaceAgentIds;
   }
   return workspaceAgentIds.includes(match[1]) ? [match[1]] : null;
