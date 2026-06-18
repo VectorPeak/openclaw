@@ -1995,6 +1995,54 @@ describe("QmdMemoryManager", () => {
     await manager.close();
   });
 
+  it("restores private artifact ignores after qmd rebuilds collections", async () => {
+    cfg = withAgentMemoryConfig(cfg, {
+      backend: "qmd",
+      qmd: {
+        includeDefaultMemory: true,
+        update: { interval: "0s", debounceMs: 0, onBoot: false },
+        paths: [],
+      },
+    });
+
+    let updateCalls = 0;
+    spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === "update") {
+        updateCalls += 1;
+        const child = createMockChild({ autoClose: false });
+        if (updateCalls === 1) {
+          emitAndClose(
+            child,
+            "stderr",
+            "SQLiteError: UNIQUE constraint failed: documents.collection, documents.path",
+            1,
+          );
+          return child;
+        }
+        queueMicrotask(() => child.closeWith(0));
+        return child;
+      }
+      if (args[0] === "collection" && args[1] === "add") {
+        const child = createMockChild({ autoClose: false });
+        // QMD collection add keeps only path, pattern, and context fields.
+        void fs
+          .writeFile(qmdIndexConfigPath(), "collections: {}\n", "utf8")
+          .then(() => child.closeWith(0));
+        return child;
+      }
+      return createMockChild();
+    });
+
+    const { manager } = await createManager({ mode: "status" });
+    await expect(manager.sync({ reason: "manual" })).resolves.toBeUndefined();
+
+    const indexConfig = await fs.readFile(qmdIndexConfigPath(), "utf8");
+    expect(indexConfig).toContain('  "memory-dir-main":');
+    expect(indexConfig).toContain('    ignore:\n      - ".dreams/**"');
+
+    await manager.close();
+  });
+
   it("forces repair remove/add even when managed collections are still listed", async () => {
     cfg = withAgentMemoryConfig(cfg, {
       backend: "qmd",

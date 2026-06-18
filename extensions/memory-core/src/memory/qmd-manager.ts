@@ -1226,6 +1226,14 @@ export class QmdMemoryManager implements MemorySearchManager {
         }
       }
     }
+    try {
+      // QMD collection add rewrites entries and drops managed fields such as ignore.
+      await this.refreshManagedCollectionIndexConfig();
+    } catch (configErr) {
+      log.warn(
+        `qmd managed collection index refresh failed after update repair (${reason}): ${formatErrorMessage(configErr)}`,
+      );
+    }
     log.warn(`qmd managed collections rebuilt for update repair (${reason})`);
   }
 
