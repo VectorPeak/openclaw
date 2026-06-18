@@ -80,19 +80,10 @@ export function createTypingCallbacks(params: CreateTypingCallbacksParams): Typi
       pending: true,
       promise: Promise.resolve("skipped" as StartResult),
     };
-    handle.promise = startGuard
-      .run(async () => {
-        try {
-          await params.start();
-        } finally {
-          handle.pending = false;
-        }
-      })
-      .finally(() => {
-        handle.pending = false;
-      });
+    handle.promise = startGuard.run(() => params.start());
     pendingStarts.add(handle);
     void handle.promise.then((result) => {
+      handle.pending = false;
       const shouldContinue = handleStartSettled(handle, result);
       onSettled?.(result, shouldContinue);
     });
@@ -154,15 +145,6 @@ export function createTypingCallbacks(params: CreateTypingCallbacksParams): Typi
     }
     stopSent = true;
     void stop().catch((err: unknown) => (params.onStopError ?? params.onStartError)(err));
-  };
-
-  const hasPendingStart = () => {
-    for (const start of pendingStarts) {
-      if (start.pending) {
-        return true;
-      }
-    }
-    return false;
   };
 
   const hasPendingStart = () => {
