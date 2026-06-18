@@ -481,7 +481,6 @@ export const FIELD_LABELS: Record<string, string> = {
   "agents.defaults.memory.search.fallback": "Memory Search Fallback",
   "agents.defaults.memory.search.local.modelPath": "Local Embedding Model Path",
   "agents.defaults.memory.search.local.contextSize": "Local Embedding Context Size",
-  "agents.defaults.memory.search.store.path": "Memory Search Index Path",
   "agents.defaults.memory.search.store.vector.enabled": "Memory Search Vector Index",
   "agents.defaults.memory.search.store.vector.extensionPath": "Memory Search Vector Extension Path",
   "agents.defaults.memory.search.chunking.tokens": "Memory Chunk Tokens",

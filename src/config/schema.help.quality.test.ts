@@ -98,7 +98,6 @@ const TARGET_KEYS = [
   "agents.defaults.memory.search.remote.batch.pollIntervalMs",
   "agents.defaults.memory.search.remote.batch.timeoutMinutes",
   "agents.defaults.memory.search.local.modelPath",
-  "agents.defaults.memory.search.store.path",
   "agents.defaults.memory.search.inputType",
   "agents.defaults.memory.search.queryInputType",
   "agents.defaults.memory.search.documentInputType",
@@ -733,9 +732,6 @@ describe("config help copy quality", () => {
     expect(FIELD_HELP["agents.defaults.memory.qmd.update.interval"].includes("5m")).toBe(true);
     expect(FIELD_HELP["agents.defaults.memory.qmd.update.embedInterval"].includes("60m")).toBe(
       true,
-    );
-    expect(FIELD_HELP["agents.defaults.memory.search.store.path"]).toContain(
-      "~/.openclaw/memory/{agentId}.sqlite",
     );
   });
 

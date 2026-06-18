@@ -392,28 +392,18 @@ function normalizePhaseStatusBase(record: Record<string, unknown> | null): Dream
   };
 }
 
-function resolveDreamingPluginId(configValue: Record<string, unknown> | null): string {
-  const plugins = asRecord(configValue?.plugins);
-  const slots = asRecord(plugins?.slots);
-  const configuredSlot = normalizeTrimmedString(slots?.memory);
-  if (configuredSlot && configuredSlot.toLowerCase() !== "none") {
-    return configuredSlot;
-  }
-  return DEFAULT_DREAMING_PLUGIN_ID;
-}
-
 export function resolveConfiguredDreaming(configValue: Record<string, unknown> | null): {
   pluginId: string;
   enabled: boolean;
 } {
-  const pluginId = resolveDreamingPluginId(configValue);
-  const plugins = asRecord(configValue?.plugins);
-  const entries = asRecord(plugins?.entries);
-  const pluginEntry = asRecord(entries?.[pluginId]);
-  const config = asRecord(pluginEntry?.config);
-  const dreaming = asRecord(config?.dreaming);
+  const agents = asRecord(configValue?.agents);
+  const defaults = asRecord(agents?.defaults);
+  const memory = asRecord(defaults?.memory);
+  const extensions = asRecord(memory?.extensions);
+  const memoryCore = asRecord(extensions?.[DEFAULT_DREAMING_PLUGIN_ID]);
+  const dreaming = asRecord(memoryCore?.dreaming);
   return {
-    pluginId,
+    pluginId: DEFAULT_DREAMING_PLUGIN_ID,
     enabled: normalizeBoolean(dreaming?.enabled, false),
   };
 }
@@ -1103,50 +1093,6 @@ async function writeDreamingPatch(
   }
 }
 
-function lookupIncludesDreamingProperty(value: unknown): boolean {
-  const lookup = asRecord(value);
-  const children = Array.isArray(lookup?.children) ? lookup.children : [];
-  for (const child of children) {
-    const childRecord = asRecord(child);
-    if (normalizeTrimmedString(childRecord?.key) === "dreaming") {
-      return true;
-    }
-  }
-  return false;
-}
-
-function lookupDisallowsUnknownProperties(value: unknown): boolean {
-  const lookup = asRecord(value);
-  const schema = asRecord(lookup?.schema);
-  return schema?.additionalProperties === false;
-}
-
-async function ensureDreamingPathSupported(
-  state: DreamingState,
-  pluginId: string,
-): Promise<boolean> {
-  if (!state.client || !state.connected) {
-    return true;
-  }
-  try {
-    const lookup = await state.client.request("config.schema.lookup", {
-      path: `plugins.entries.${pluginId}.config`,
-    });
-    if (lookupIncludesDreamingProperty(lookup)) {
-      return true;
-    }
-    if (lookupDisallowsUnknownProperties(lookup)) {
-      const message = `Selected memory plugin "${pluginId}" does not support dreaming settings.`;
-      state.dreamingStatusError = message;
-      state.lastError = message;
-      return false;
-    }
-  } catch {
-    return true;
-  }
-  return true;
-}
-
 export async function updateDreamingEnabled(
   state: DreamingState,
   enabled: boolean,
@@ -1158,23 +1104,37 @@ export async function updateDreamingEnabled(
     state.dreamingStatusError = "Config hash missing; refresh and retry.";
     return false;
   }
-  const { pluginId } = resolveConfiguredDreaming(asRecord(state.configSnapshot?.config) ?? null);
-  if (!(await ensureDreamingPathSupported(state, pluginId))) {
-    return false;
-  }
-  const ok = await writeDreamingPatch(state, {
-    plugins: {
-      entries: {
-        [pluginId]: {
-          config: {
-            dreaming: {
-              enabled,
-            },
-          },
+  const agentId = resolveSelectedAgentId(state);
+  const dreamingPatch = {
+    extensions: {
+      [DEFAULT_DREAMING_PLUGIN_ID]: {
+        dreaming: {
+          enabled,
         },
       },
     },
-  });
+  };
+  const ok = await writeDreamingPatch(
+    state,
+    agentId
+      ? {
+          agents: {
+            list: [
+              {
+                id: agentId,
+                memory: dreamingPatch,
+              },
+            ],
+          },
+        }
+      : {
+          agents: {
+            defaults: {
+              memory: dreamingPatch,
+            },
+          },
+        },
+  );
   if (ok && state.dreamingStatus) {
     state.dreamingStatus = {
       ...state.dreamingStatus,
