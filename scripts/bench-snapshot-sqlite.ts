@@ -109,6 +109,14 @@ type WriterErrorMessage = {
   kind: "error";
 };
 
+type WriterMessage = WriterErrorMessage | WriterReadyMessage | WriterResultMessage;
+
+type WriterLifecycle = {
+  finished: Promise<WriterResultMessage>;
+  ready: Promise<void>;
+  stop: () => void;
+};
+
 const PROFILES: Record<ProfileId, ProfileConfig> = {
   smoke: {
     iterations: 3,
@@ -423,56 +431,76 @@ function resolveTargetDatabase(
   return result;
 }
 
-async function waitForWorkerReady(worker: Worker): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const onMessage = (message: WriterReadyMessage | WriterErrorMessage) => {
-      if (message.kind === "ready") {
-        cleanup();
-        resolve();
-      } else if (message.kind === "error") {
-        cleanup();
-        reject(new Error(message.error));
-      }
-    };
-    const onError = (error: Error) => {
-      cleanup();
-      reject(error);
-    };
-    const cleanup = () => {
-      worker.off("message", onMessage);
-      worker.off("error", onError);
-    };
-    worker.on("message", onMessage);
-    worker.on("error", onError);
-    // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node Worker.postMessage has no targetOrigin.
-    worker.postMessage({ kind: "start" });
+function startWriter(worker: Worker): WriterLifecycle {
+  let readySettled = false;
+  let finishedSettled = false;
+  let resolveReady: () => void = () => {};
+  let rejectReady: (error: Error) => void = () => {};
+  let resolveFinished: (message: WriterResultMessage) => void = () => {};
+  let rejectFinished: (error: Error) => void = () => {};
+  const ready = new Promise<void>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
   });
-}
+  const finished = new Promise<WriterResultMessage>((resolve, reject) => {
+    resolveFinished = resolve;
+    rejectFinished = reject;
+  });
 
-async function stopWriter(worker: Worker): Promise<WriterResultMessage> {
-  return await new Promise<WriterResultMessage>((resolve, reject) => {
-    const onMessage = (message: WriterResultMessage | WriterErrorMessage) => {
-      if (message.kind === "result") {
-        cleanup();
-        resolve(message);
-      } else if (message.kind === "error") {
-        cleanup();
-        reject(new Error(message.error));
-      }
-    };
-    const onError = (error: Error) => {
+  const cleanup = () => {
+    worker.off("message", onMessage);
+    worker.off("error", onError);
+    worker.off("exit", onExit);
+  };
+  const settleReady = (settle: () => void) => {
+    if (!readySettled) {
+      readySettled = true;
+      settle();
+    }
+  };
+  const settleFinished = (settle: () => void) => {
+    if (!finishedSettled) {
+      finishedSettled = true;
       cleanup();
-      reject(error);
-    };
-    const cleanup = () => {
-      worker.off("message", onMessage);
-      worker.off("error", onError);
-    };
-    worker.on("message", onMessage);
-    worker.on("error", onError);
-    // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node Worker.postMessage has no targetOrigin.
-    worker.postMessage({ kind: "stop" });
-  });
+      settle();
+    }
+  };
+  const fail = (error: Error) => {
+    settleReady(() => rejectReady(error));
+    settleFinished(() => rejectFinished(error));
+  };
+  const onMessage = (message: WriterMessage) => {
+    if (message.kind === "ready") {
+      settleReady(resolveReady);
+    } else if (message.kind === "result") {
+      settleReady(resolveReady);
+      settleFinished(() => resolveFinished(message));
+    } else if (message.kind === "error") {
+      fail(new Error(message.error));
+    }
+  };
+  const onError = (error: Error) => {
+    fail(error);
+  };
+  const onExit = (code: number) => {
+    if (!finishedSettled) {
+      fail(new Error(`writer exited before reporting result; exit code ${code}`));
+    }
+  };
+  worker.on("message", onMessage);
+  worker.on("error", onError);
+  worker.on("exit", onExit);
+  // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node Worker.postMessage has no targetOrigin.
+  worker.postMessage({ kind: "start" });
+
+  return {
+    finished,
+    ready,
+    stop: () => {
+      // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node Worker.postMessage has no targetOrigin.
+      worker.postMessage({ kind: "stop" });
+    },
+  };
 }
 
 function verifyStressInvariants(databasePath: string, rowsPerBatch: number): void {
@@ -532,36 +560,53 @@ async function runStress(options: SnapshotStressOptions): Promise<SnapshotStress
     });
     workers.add(worker);
     debug("worker constructed");
-    await waitForWorkerReady(worker);
+    const writer = startWriter(worker);
+    let snapshotLoopComplete = false;
+    const writerFinished = writer.finished.then((result) => {
+      if (!snapshotLoopComplete) {
+        throw new Error(
+          `writer stopped before snapshot loop completed after ${result.batchesCommitted} batches`,
+        );
+      }
+      return result;
+    });
+    await writer.ready;
     debug("worker ready");
 
     for (let iteration = 0; iteration < config.iterations; iteration += 1) {
-      debug(`snapshot ${iteration} start`);
-      const snapshotStarted = nowMs();
-      const snapshot = await provider.create({
-        id: target.id,
-        kind: target.kind,
-        path: target.path,
-      });
-      const snapshotMs = nowMs() - snapshotStarted;
-      const copiedSnapshotPath = path.join(stateDir, "synced", `snapshot-${iteration}`);
-      fs.cpSync(snapshot.ref.path, copiedSnapshotPath, { recursive: true });
-      const restorePath = path.join(stateDir, "restored", `restore-${iteration}.sqlite`);
-      const restoreStarted = nowMs();
-      debug(`restore ${iteration} start`);
-      await provider.restore({ path: copiedSnapshotPath }, restorePath);
-      const restoreMs = nowMs() - restoreStarted;
-      verifyStressInvariants(restorePath, config.rowsPerBatch);
-      debug(`iteration ${iteration} verified`);
-      metrics.push({
-        restoreMs: Number(restoreMs.toFixed(3)),
-        snapshotBytes: snapshot.manifest.artifact.sizeBytes,
-        snapshotMs: Number(snapshotMs.toFixed(3)),
-      });
+      await Promise.race([
+        (async () => {
+          debug(`snapshot ${iteration} start`);
+          const snapshotStarted = nowMs();
+          const snapshot = await provider.create({
+            id: target.id,
+            kind: target.kind,
+            path: target.path,
+          });
+          const snapshotMs = nowMs() - snapshotStarted;
+          const copiedSnapshotPath = path.join(stateDir, "synced", `snapshot-${iteration}`);
+          fs.cpSync(snapshot.ref.path, copiedSnapshotPath, { recursive: true });
+          const restorePath = path.join(stateDir, "restored", `restore-${iteration}.sqlite`);
+          const restoreStarted = nowMs();
+          debug(`restore ${iteration} start`);
+          await provider.restore({ path: copiedSnapshotPath }, restorePath);
+          const restoreMs = nowMs() - restoreStarted;
+          verifyStressInvariants(restorePath, config.rowsPerBatch);
+          debug(`iteration ${iteration} verified`);
+          metrics.push({
+            restoreMs: Number(restoreMs.toFixed(3)),
+            snapshotBytes: snapshot.manifest.artifact.sizeBytes,
+            snapshotMs: Number(snapshotMs.toFixed(3)),
+          });
+        })(),
+        writerFinished,
+      ]);
     }
 
     const stoppedWorker = worker;
-    const writerResult = await stopWriter(stoppedWorker);
+    snapshotLoopComplete = true;
+    writer.stop();
+    const writerResult = await writerFinished;
     await stoppedWorker.terminate();
     workers.delete(stoppedWorker);
     const summary = summarizeIterationMetrics(metrics);
