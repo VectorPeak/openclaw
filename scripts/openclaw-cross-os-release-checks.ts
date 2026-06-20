@@ -4030,11 +4030,15 @@ async function runCommandInvocation(invocation, options) {
     });
 
     child.on("close", (exitCode) => {
-      activeChildTree.unregister();
       if (forwardedSignalExitCode !== undefined) {
+        // The leader can exit on SIGTERM while descendants remain in its group.
+        // Kill the group before unregistering so signal forwarding cannot leave them running.
+        activeChildTree.killChildTree("SIGKILL");
+        activeChildTree.unregister();
         finalize(exitForwardedSignalWhenChildTreesDone);
         return;
       }
+      activeChildTree.unregister();
       finalize(() => {
         const result = {
           exitCode: exitCode ?? 1,
