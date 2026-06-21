@@ -130,6 +130,32 @@ describe("session origin across a channel switch", () => {
     expect(afterAccountSwitch.origin?.nativeDirectUserId).toBeUndefined();
     expect(afterAccountSwitch.origin?.threadId).toBeUndefined();
   });
+
+  it("preserves sparse existing channel metadata when optional identity fields are first populated", () => {
+    const existing = {
+      sessionKey,
+      origin: {
+        provider: "slack",
+        nativeChannelId: "D111SLACK",
+        threadId: "1700000000.000100",
+      },
+    } satisfies SessionEntry;
+    const slackFollowUp = {
+      Provider: "slack",
+      Surface: "slack",
+      ChatType: "direct",
+      From: "slack:U0001",
+      To: "slack:D111SLACK",
+      AccountId: "slack-team-1",
+    } satisfies Partial<MsgContext>;
+
+    const afterFollowUp = applyOrigin(existing, slackFollowUp);
+
+    expect(afterFollowUp.origin?.surface).toBe("slack");
+    expect(afterFollowUp.origin?.accountId).toBe("slack-team-1");
+    expect(afterFollowUp.origin?.nativeChannelId).toBe("D111SLACK");
+    expect(afterFollowUp.origin?.threadId).toBe("1700000000.000100");
+  });
 });
 
 // Drive the production inbound-event context builder so the bug premise itself is proven, not

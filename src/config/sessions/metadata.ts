@@ -26,9 +26,11 @@ const mergeOrigin = (
   // status reads pointed at the previous channel.
   const channelChanged =
     existing != null &&
-    ((next?.provider != null && next.provider !== existing.provider) ||
-      (next?.surface != null && next.surface !== existing.surface) ||
-      (next?.accountId != null && next.accountId !== existing.accountId));
+    ((existing.provider != null && next?.provider != null && next.provider !== existing.provider) ||
+      (existing.surface != null && next?.surface != null && next.surface !== existing.surface) ||
+      (existing.accountId != null &&
+        next?.accountId != null &&
+        next.accountId !== existing.accountId));
   if (channelChanged) {
     delete merged.nativeChannelId;
     delete merged.nativeDirectUserId;
