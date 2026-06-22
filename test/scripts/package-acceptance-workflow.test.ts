@@ -1962,6 +1962,29 @@ describe("package artifact reuse", () => {
     expect(pluginPretagPackScript).toContain("scripts/check-plugin-npm-runtime-builds.mjs");
     expect(pluginPretagPackScript).toContain("scripts/plugin-npm-publish.sh");
     expect(pluginPretagPackScript).toContain("scripts/plugin-clawhub-publish.sh");
+    expect(pluginNpmWorkflow).toContain("bootstrap_empty:");
+    expect(pluginNpmWorkflow).toContain("resolve_empty_npm_placeholder:");
+    expect(pluginNpmWorkflow).toContain("publish_empty_npm_placeholder:");
+    expect(pluginNpmWorkflow).toContain("Empty npm placeholders require publish_scope=selected.");
+    expect(pluginNpmWorkflow).toContain(
+      "Empty npm placeholders require exactly one selected plugin package.",
+    );
+    expect(pluginNpmWorkflow).toContain("packageJson.openclaw?.release?.publishToNpm === true");
+    expect(pluginNpmWorkflow).toContain("https://registry.npmjs.org/${encodeURIComponent");
+    expect(pluginNpmWorkflow).toContain('publishedVersions.includes("0.0.0")');
+    expect(pluginNpmWorkflow).toContain(
+      "npm publish --access public --tag placeholder --provenance",
+    );
+    expect(pluginNpmWorkflow).toContain("id-token: write");
+    expect(pluginNpmWorkflow).toContain('install-deps: "false"');
+    expect(pluginNpmWorkflow).toContain("npm install --global npm@11.16.0");
+    expect(pluginNpmWorkflow).toContain("https://github.com/openclaw/openclaw");
+    expect(pluginNpmWorkflow).toContain("npm trust github");
+    expect(pluginNpmWorkflow).toContain("npm trust list");
+    expect(pluginNpmWorkflow).toContain("Existing npm trusted publisher does not match");
+    expect(pluginNpmWorkflow).toContain("--file plugin-npm-release.yml");
+    expect(pluginNpmWorkflow).toContain("--environment npm-release");
+    expect(pluginNpmWorkflow).toContain("Expected ${PACKAGE_NAME}@0.0.0 to be published only");
     expect(clawHubWorkflow).toContain('CLAWHUB_CLI_PACKAGE: "clawhub@0.21.0"');
     expect(clawHubWorkflow).not.toContain("CLAWHUB_REPOSITORY:");
     expect(clawHubWorkflow).not.toContain("CLAWHUB_REF:");

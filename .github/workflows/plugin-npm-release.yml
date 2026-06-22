@@ -36,6 +36,11 @@ on:
         description: Approved OpenClaw Release Publish workflow run id
         required: false
         type: string
+      bootstrap_empty:
+        description: Publish an empty 0.0.0 placeholder for one selected release-enabled plugin
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: plugin-npm-release-${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
@@ -47,6 +52,7 @@ env:
 
 jobs:
   preview_plugins_npm:
+    if: github.event_name != 'workflow_dispatch' || inputs.bootstrap_empty != true
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -178,7 +184,7 @@ jobs:
   validate_release_publish_approval:
     name: Validate release publish approval
     needs: preview_plugins_npm
-    if: github.event_name == 'workflow_dispatch' && needs.preview_plugins_npm.outputs.has_candidates == 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_empty != true && needs.preview_plugins_npm.outputs.has_candidates == 'true'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -214,7 +220,7 @@ jobs:
 
   preview_plugin_pack:
     needs: preview_plugins_npm
-    if: needs.preview_plugins_npm.outputs.has_candidates == 'true'
+    if: inputs.bootstrap_empty != true && needs.preview_plugins_npm.outputs.has_candidates == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -244,7 +250,7 @@ jobs:
 
   publish_plugins_npm:
     needs: [preview_plugins_npm, preview_plugin_pack, validate_release_publish_approval]
-    if: github.event_name == 'workflow_dispatch' && needs.preview_plugins_npm.outputs.has_candidates == 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_empty != true && needs.preview_plugins_npm.outputs.has_candidates == 'true'
     runs-on: ubuntu-latest
     environment: npm-release
     permissions:
@@ -296,3 +302,284 @@ jobs:
           PACKAGE_NAME: ${{ matrix.plugin.packageName }}
           PACKAGE_VERSION: ${{ matrix.plugin.version }}
         run: node scripts/verify-plugin-npm-published-runtime.mjs "${PACKAGE_NAME}@${PACKAGE_VERSION}"
+
+  resolve_empty_npm_placeholder:
+    name: Resolve empty npm placeholder
+    if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_empty == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      package_name: ${{ steps.placeholder.outputs.package_name }}
+      already_published: ${{ steps.placeholder.outputs.already_published }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Validate ref is on a trusted publish branch
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            +refs/heads/main:refs/remotes/origin/main \
+            '+refs/heads/release/*:refs/remotes/origin/release/*'
+          if git merge-base --is-ancestor HEAD origin/main; then
+            exit 0
+          fi
+          while IFS= read -r release_ref; do
+            if git merge-base --is-ancestor HEAD "${release_ref}"; then
+              exit 0
+            fi
+          done < <(git for-each-ref --format='%(refname)' refs/remotes/origin/release)
+          echo "Empty npm placeholders must target a commit reachable from main or release/*." >&2
+          exit 1
+
+      - name: Resolve selected placeholder package
+        id: placeholder
+        env:
+          PUBLISH_SCOPE: ${{ inputs.publish_scope }}
+          RELEASE_PLUGINS: ${{ inputs.plugins }}
+        run: |
+          set -euo pipefail
+          if [[ "${PUBLISH_SCOPE}" != "selected" ]]; then
+            echo "Empty npm placeholders require publish_scope=selected." >&2
+            exit 1
+          fi
+
+          node --input-type=module <<'EOF' > "$RUNNER_TEMP/empty-npm-placeholder.json"
+          import fs from "node:fs";
+          import path from "node:path";
+
+          const selected = (process.env.RELEASE_PLUGINS ?? "")
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean);
+          if (selected.length !== 1) {
+            throw new Error("Empty npm placeholders require exactly one selected plugin package.");
+          }
+
+          const packageName = selected[0];
+          if (!packageName.startsWith("@openclaw/")) {
+            throw new Error(`Empty npm placeholders must use an @openclaw package: ${packageName}`);
+          }
+
+          const match = fs
+            .readdirSync("extensions", { withFileTypes: true })
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => path.join("extensions", entry.name, "package.json"))
+            .filter((packageJsonPath) => fs.existsSync(packageJsonPath))
+            .map((packageJsonPath) => ({
+              packageDir: path.dirname(packageJsonPath),
+              packageJson: JSON.parse(fs.readFileSync(packageJsonPath, "utf8")),
+            }))
+            .find(
+              ({ packageJson }) =>
+                packageJson.name === packageName && packageJson.openclaw?.release?.publishToNpm === true,
+            );
+          if (!match) {
+            throw new Error(
+              `Selected package ${packageName} is not a release-enabled OpenClaw plugin manifest.`,
+            );
+          }
+
+          const registryResponse = await fetch(
+            `https://registry.npmjs.org/${encodeURIComponent(match.packageJson.name)}`,
+          );
+          if (registryResponse.status === 404) {
+            process.stdout.write(
+              `${JSON.stringify({ packageName: match.packageJson.name, alreadyPublished: false })}\n`,
+            );
+            process.exit(0);
+          }
+          if (!registryResponse.ok) {
+            throw new Error(
+              `Could not read npm package metadata for ${match.packageJson.name}: ${registryResponse.status}.`,
+            );
+          }
+
+          const registryPackage = await registryResponse.json();
+          const publishedVersions =
+            typeof registryPackage === "object" &&
+            registryPackage !== null &&
+            typeof registryPackage.versions === "object" &&
+            registryPackage.versions !== null
+              ? Object.keys(registryPackage.versions)
+              : [];
+          if (publishedVersions.some((version) => version !== "0.0.0")) {
+            throw new Error(
+              `${match.packageJson.name} already has published npm versions; refusing to add a placeholder.`,
+            );
+          }
+
+          process.stdout.write(
+            `${JSON.stringify({
+              packageName: match.packageJson.name,
+              alreadyPublished: publishedVersions.includes("0.0.0"),
+            })}\n`,
+          );
+          EOF
+
+          package_name="$(jq -r '.packageName' "$RUNNER_TEMP/empty-npm-placeholder.json")"
+          already_published="$(jq -r '.alreadyPublished' "$RUNNER_TEMP/empty-npm-placeholder.json")"
+          {
+            echo "package_name=${package_name}"
+            echo "already_published=${already_published}"
+          } >> "$GITHUB_OUTPUT"
+
+  publish_empty_npm_placeholder:
+    name: Publish empty npm placeholder
+    needs: resolve_empty_npm_placeholder
+    if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_empty == true
+    runs-on: ubuntu-latest
+    environment: npm-release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          install-bun: "false"
+          install-deps: "false"
+          use-actions-cache: "false"
+
+      - name: Install npm trusted-publishing CLI
+        run: npm install --global npm@11.16.0
+
+      - name: Create empty package
+        id: package
+        env:
+          PACKAGE_NAME: ${{ needs.resolve_empty_npm_placeholder.outputs.package_name }}
+        run: |
+          set -euo pipefail
+          package_dir="$RUNNER_TEMP/empty-npm-placeholder"
+          mkdir -p "${package_dir}"
+          PACKAGE_DIR="${package_dir}" node --input-type=module <<'EOF'
+          import fs from "node:fs";
+          import path from "node:path";
+
+          const packageDir = process.env.PACKAGE_DIR;
+          const packageName = process.env.PACKAGE_NAME;
+          if (!packageDir || !packageName) {
+            throw new Error("Missing empty npm placeholder package inputs.");
+          }
+
+          fs.writeFileSync(
+            path.join(packageDir, "package.json"),
+            `${JSON.stringify(
+              {
+                name: packageName,
+                version: "0.0.0",
+                description: "Reserved package name for a future OpenClaw plugin release.",
+                license: "MIT",
+                repository: {
+                  type: "git",
+                  url: "https://github.com/openclaw/openclaw",
+                },
+                files: ["README.md"],
+              },
+              null,
+              2,
+            )}\n`,
+          );
+          fs.writeFileSync(
+            path.join(packageDir, "README.md"),
+            `# ${packageName}\n\nThis intentionally empty package reserves the name for a future OpenClaw plugin release.\n`,
+          );
+          EOF
+          echo "package_dir=${package_dir}" >> "$GITHUB_OUTPUT"
+
+      - name: Preview empty package contents
+        env:
+          PACKAGE_DIR: ${{ steps.package.outputs.package_dir }}
+        run: |
+          set -euo pipefail
+          cd "${PACKAGE_DIR}"
+          npm pack --dry-run --json --ignore-scripts
+
+      - name: Publish empty placeholder
+        if: needs.resolve_empty_npm_placeholder.outputs.already_published != 'true'
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PACKAGE_DIR: ${{ steps.package.outputs.package_dir }}
+        run: |
+          set -euo pipefail
+          : "${NPM_TOKEN:?NPM_TOKEN is required for the initial npm package publish.}"
+          npmrc="$(mktemp)"
+          trap 'rm -f "${npmrc}"' EXIT
+          chmod 0600 "${npmrc}"
+          printf '%s\n' "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "${npmrc}"
+          cd "${PACKAGE_DIR}"
+          NPM_CONFIG_USERCONFIG="${npmrc}" npm publish --access public --tag placeholder --provenance
+
+      - name: Configure or verify npm trusted publisher
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PACKAGE_NAME: ${{ needs.resolve_empty_npm_placeholder.outputs.package_name }}
+        run: |
+          set -euo pipefail
+          : "${NPM_TOKEN:?NPM_TOKEN is required to configure npm trusted publishing.}"
+          npmrc="$(mktemp)"
+          trap 'rm -f "${npmrc}"' EXIT
+          chmod 0600 "${npmrc}"
+          printf '%s\n' "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "${npmrc}"
+          trust_config="$(NPM_CONFIG_USERCONFIG="${npmrc}" npm trust list "${PACKAGE_NAME}" --json)"
+          if [[ -n "${trust_config//[[:space:]]/}" ]]; then
+            if ! jq -e '
+              .type == "github" and
+              .repository == env.GITHUB_REPOSITORY and
+              .file == "plugin-npm-release.yml" and
+              .environment == "npm-release" and
+              ((.permissions // []) | index("createPackage") != null)
+            ' <<<"${trust_config}" >/dev/null; then
+              echo "Existing npm trusted publisher does not match this release workflow." >&2
+              exit 1
+            fi
+            exit 0
+          fi
+          NPM_CONFIG_USERCONFIG="${npmrc}" npm trust github "${PACKAGE_NAME}" \
+              --repository "${GITHUB_REPOSITORY}" \
+              --file plugin-npm-release.yml \
+              --environment npm-release \
+              --allow-publish \
+              --yes
+
+      - name: Verify empty placeholder
+        env:
+          PACKAGE_NAME: ${{ needs.resolve_empty_npm_placeholder.outputs.package_name }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          published_version="$(npm view "${PACKAGE_NAME}@0.0.0" version)"
+          placeholder_tag="$(npm view "${PACKAGE_NAME}" dist-tags.placeholder)"
+          if [[ "${published_version}" != "0.0.0" || "${placeholder_tag}" != "0.0.0" ]]; then
+            echo "Expected ${PACKAGE_NAME}@0.0.0 to be published only under the placeholder dist-tag." >&2
+            exit 1
+          fi
+          : "${NPM_TOKEN:?NPM_TOKEN is required to verify npm trusted publishing.}"
+          npmrc="$(mktemp)"
+          trap 'rm -f "${npmrc}"' EXIT
+          chmod 0600 "${npmrc}"
+          printf '%s\n' "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "${npmrc}"
+          trust_config="$(NPM_CONFIG_USERCONFIG="${npmrc}" npm trust list "${PACKAGE_NAME}" --json)"
+          if ! jq -e '
+            .type == "github" and
+            .repository == env.GITHUB_REPOSITORY and
+            .file == "plugin-npm-release.yml" and
+            .environment == "npm-release" and
+            ((.permissions // []) | index("createPackage") != null)
+          ' <<<"${trust_config}" >/dev/null; then
+            echo "npm trusted publisher does not match this release workflow." >&2
+            exit 1
+          fi
