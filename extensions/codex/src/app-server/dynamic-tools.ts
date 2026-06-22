@@ -18,6 +18,7 @@ import {
   getChannelAgentToolMeta,
   getPluginToolMeta,
   type EmbeddedRunAttemptParams,
+  isDeliveredMessageToolOnlySourceReplyResult,
   isReplaySafeToolCall,
   isToolWrappedWithBeforeToolCallHook,
   isToolResultError,
@@ -66,6 +67,7 @@ type CodexDynamicToolHookContext = {
   currentThreadId?: string;
   replyToMode?: "off" | "first" | "all" | "batched";
   hasRepliedRef?: { value: boolean };
+  sourceReplyDeliveryMode?: EmbeddedRunAttemptParams["sourceReplyDeliveryMode"];
   onToolOutcome?: EmbeddedRunAttemptParams["onToolOutcome"];
   allocateToolOutcomeOrdinal?: EmbeddedRunAttemptParams["allocateToolOutcomeOrdinal"];
 };
@@ -358,12 +360,20 @@ export function createCodexDynamicToolBridge(params: {
           },
           terminalType,
         );
+        const deliveredSourceReply = isDeliveredMessageToolOnlySourceReplyResult({
+          sourceReplyDeliveryMode: params.hookContext?.sourceReplyDeliveryMode,
+          toolName,
+          args: executedArgs,
+          result,
+          isError: resultIsError,
+        });
         withDynamicToolTermination(
           response,
           rawResult.terminate === true ||
             result.terminate === true ||
             isToolResultYield(rawResult) ||
-            isToolResultYield(result),
+            isToolResultYield(result) ||
+            deliveredSourceReply,
         );
         const asyncStarted =
           isAsyncStartedToolResult(rawResult) || isAsyncStartedToolResult(result);
