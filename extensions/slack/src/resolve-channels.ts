@@ -1,6 +1,7 @@
 // Slack plugin module implements resolve channels behavior.
 import type { WebClient } from "@slack/web-api";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/string-coerce-runtime";
+import type { SlackApiUrlClientOptions } from "./client-options.js";
 import { createSlackWebClient } from "./client.js";
 import {
   collectSlackCursorItems,
@@ -101,8 +102,14 @@ export async function resolveSlackChannelAllowlist(params: {
   token: string;
   entries: string[];
   client?: WebClient;
+  slackApiUrl?: SlackApiUrlClientOptions["slackApiUrl"];
 }): Promise<SlackChannelResolution[]> {
-  const client = params.client ?? createSlackWebClient(params.token);
+  const client =
+    params.client ??
+    createSlackWebClient(
+      params.token,
+      params.slackApiUrl ? { slackApiUrl: params.slackApiUrl } : {},
+    );
   const channels = await listSlackChannels(client);
   return resolveSlackAllowlistEntries<
     { id?: string; name?: string },

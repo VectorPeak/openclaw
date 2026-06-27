@@ -6,6 +6,7 @@ import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { z } from "zod";
 import { resolveSlackAccount } from "./accounts.js";
 import { validateSlackBlocksArray } from "./blocks-input.js";
+import { createSlackApiUrlClientOptions } from "./client-options.js";
 import { createSlackWebClient, getSlackWriteClient } from "./client.js";
 import { buildSlackEditTextPayload } from "./edit-text.js";
 import { resolveSlackMedia } from "./monitor/media.js";
@@ -71,6 +72,22 @@ function resolveToken(explicit?: string, accountId?: string, cfg?: OpenClawConfi
   return token;
 }
 
+function resolveSlackActionClientOptions(opts: SlackActionClientOpts) {
+  if (!opts.cfg) {
+    return createSlackApiUrlClientOptions();
+  }
+  const cfg = requireRuntimeConfig(opts.cfg, "Slack actions");
+  resolveSlackAccount({ cfg, accountId: opts.accountId });
+  return createSlackApiUrlClientOptions();
+}
+
+function slackActionClientOptionArgs(
+  opts: SlackActionClientOpts,
+): [] | [ReturnType<typeof createSlackApiUrlClientOptions>] {
+  const clientOptions = resolveSlackActionClientOptions(opts);
+  return clientOptions.slackApiUrl ? [clientOptions] : [];
+}
+
 function normalizeEmoji(raw: string) {
   const trimmed = raw.trim();
   if (!trimmed) {
@@ -131,7 +148,10 @@ async function getClient(opts: SlackActionClientOpts = {}, mode: "read" | "write
     return opts.client;
   }
   const token = resolveToken(opts.token, opts.accountId, opts.cfg);
-  return mode === "write" ? getSlackWriteClient(token) : createSlackWebClient(token);
+  const clientOptionArgs = slackActionClientOptionArgs(opts);
+  return mode === "write"
+    ? getSlackWriteClient(token, ...clientOptionArgs)
+    : createSlackWebClient(token, ...clientOptionArgs);
 }
 
 async function resolveBotUserId(client: WebClient) {

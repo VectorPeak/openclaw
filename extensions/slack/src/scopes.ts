@@ -6,7 +6,7 @@ import {
   normalizeOptionalString,
   sortUniqueStrings,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
-import { createSlackWebClient } from "./client.js";
+import { createSlackWebClient, type SlackApiUrlClientOptions } from "./client.js";
 import { formatSlackError } from "./errors.js";
 
 export type SlackScopesResult = {
@@ -95,8 +95,9 @@ async function callSlack(
 export async function fetchSlackScopes(
   token: string,
   timeoutMs: number,
+  options: SlackApiUrlClientOptions = {},
 ): Promise<SlackScopesResult> {
-  const client = createSlackWebClient(token, { timeout: timeoutMs });
+  const client = createSlackWebClient(token, { ...options, timeout: timeoutMs });
   const attempts: SlackScopesMethod[] = ["auth.test", "auth.scopes", "apps.permissions.info"];
   const errors: string[] = [];
 

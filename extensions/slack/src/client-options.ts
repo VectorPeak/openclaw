@@ -3,6 +3,8 @@ import type { Agent } from "node:http";
 import type { RetryOptions, WebClientOptions } from "@slack/web-api";
 import { createNodeProxyAgent } from "openclaw/plugin-sdk/fetch-runtime";
 
+export type SlackApiUrlClientOptions = Pick<WebClientOptions, "slackApiUrl">;
+
 export const SLACK_DEFAULT_RETRY_OPTIONS: RetryOptions = {
   retries: 2,
   factor: 2,
@@ -30,12 +32,11 @@ export const SLACK_WRITE_RETRY_OPTIONS: RetryOptions = {
  * Returns `undefined` when no proxy env var is configured or when Slack hosts
  * are excluded by `NO_PROXY`.
  */
-function resolveSlackProxyAgent(): Agent | undefined {
+function resolveSlackProxyAgent(targetUrl: string): Agent | undefined {
   try {
     return createNodeProxyAgent({
       mode: "env",
-      targetUrl: "https://slack.com/",
-      protocol: "https",
+      targetUrl,
     });
   } catch {
     // Malformed proxy URL; degrade gracefully to direct connection.
@@ -43,19 +44,38 @@ function resolveSlackProxyAgent(): Agent | undefined {
   }
 }
 
+function resolveSlackApiUrlFromOptions(
+  options: Pick<WebClientOptions, "slackApiUrl">,
+): string | undefined {
+  const explicit = options.slackApiUrl?.trim();
+  const envDefault = process.env.SLACK_API_URL?.trim();
+  return explicit || envDefault || undefined;
+}
+
+export function createSlackApiUrlClientOptions(): SlackApiUrlClientOptions {
+  const slackApiUrl = process.env.SLACK_API_URL?.trim();
+  return slackApiUrl ? { slackApiUrl } : {};
+}
+
 export function resolveSlackWebClientOptions(options: WebClientOptions = {}): WebClientOptions {
+  const slackApiUrl = resolveSlackApiUrlFromOptions(options);
+  const proxyTargetUrl = slackApiUrl ?? "https://slack.com/";
   return {
     ...options,
-    agent: options.agent ?? resolveSlackProxyAgent(),
+    agent: options.agent ?? resolveSlackProxyAgent(proxyTargetUrl),
     retryConfig: options.retryConfig ?? SLACK_DEFAULT_RETRY_OPTIONS,
+    ...(slackApiUrl ? { slackApiUrl } : {}),
   };
 }
 
 export function resolveSlackWriteClientOptions(options: WebClientOptions = {}): WebClientOptions {
+  const slackApiUrl = resolveSlackApiUrlFromOptions(options);
+  const proxyTargetUrl = slackApiUrl ?? "https://slack.com/";
   return {
     ...options,
-    agent: options.agent ?? resolveSlackProxyAgent(),
+    agent: options.agent ?? resolveSlackProxyAgent(proxyTargetUrl),
     retryConfig: options.retryConfig ?? SLACK_WRITE_RETRY_OPTIONS,
     maxRequestConcurrency: options.maxRequestConcurrency ?? 1,
+    ...(slackApiUrl ? { slackApiUrl } : {}),
   };
 }
