@@ -656,7 +656,7 @@ async function hasApiKeyForProvider(
     return true;
   }
   if (opts?.skipProfileResolution === true) {
-    return false;
+    return authProviderId !== "amazon-bedrock" && hasAnyAuthProfileStoreSource(agentDir);
   }
   if (authProviderId !== "amazon-bedrock" && !hasAnyAuthProfileStoreSource(agentDir)) {
     return false;
