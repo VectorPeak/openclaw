@@ -111,4 +111,37 @@ describe("Slack Web API routing", () => {
       await server.close();
     }
   });
+
+  it("routes real WebClient requests to explicit Slack API URL options before SLACK_API_URL", async () => {
+    for (const key of TEST_ENV_KEYS) {
+      delete process.env[key];
+    }
+    const envRequests: SlackApiRequest[] = [];
+    const explicitRequests: SlackApiRequest[] = [];
+    const envServer = await startSlackApiServer(envRequests);
+    const explicitServer = await startSlackApiServer(explicitRequests);
+    try {
+      process.env.SLACK_API_URL = `${envServer.baseUrl}/api/`;
+
+      const client = createSlackWebClient("xoxb-route-proof", {
+        retryConfig: { retries: 0 },
+        slackApiUrl: `${explicitServer.baseUrl}/api/`,
+        timeout: 1000,
+      });
+      const result = await client.auth.test();
+
+      expect(result.ok).toBe(true);
+      expect(envRequests).toEqual([]);
+      expect(explicitRequests).toEqual([
+        {
+          authorization: "Bearer xoxb-route-proof",
+          method: "POST",
+          url: "/api/auth.test",
+        },
+      ]);
+    } finally {
+      await explicitServer.close();
+      await envServer.close();
+    }
+  });
 });

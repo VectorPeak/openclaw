@@ -142,29 +142,33 @@ describe("slack web client config", () => {
     expect(resolveSlackWriteClientOptions().slackApiUrl).toBeUndefined();
   });
 
-  it("ignores Slack API URL client options and uses SLACK_API_URL", () => {
+  it("preserves Slack API URL client options over SLACK_API_URL", () => {
     process.env.SLACK_API_URL = "http://127.0.0.1:49152/api/";
-    const unsupportedApiUrlOption = {
+    const explicitApiUrlOption = {
       slackApiUrl: "http://127.0.0.1:49153/api/",
       timeout: 1000,
     };
 
-    expect(resolveSlackWebClientOptions(unsupportedApiUrlOption).slackApiUrl).toBe(
-      "http://127.0.0.1:49152/api/",
+    expect(resolveSlackWebClientOptions(explicitApiUrlOption).slackApiUrl).toBe(
+      "http://127.0.0.1:49153/api/",
     );
-    expect(resolveSlackWriteClientOptions(unsupportedApiUrlOption).slackApiUrl).toBe(
-      "http://127.0.0.1:49152/api/",
+    expect(resolveSlackWriteClientOptions(explicitApiUrlOption).slackApiUrl).toBe(
+      "http://127.0.0.1:49153/api/",
     );
   });
 
-  it("removes Slack API URL client options when SLACK_API_URL is unset", () => {
-    const unsupportedApiUrlOption = {
+  it("preserves Slack API URL client options when SLACK_API_URL is unset", () => {
+    const explicitApiUrlOption = {
       slackApiUrl: "http://127.0.0.1:49153/api/",
       timeout: 1000,
     };
 
-    expect(resolveSlackWebClientOptions(unsupportedApiUrlOption).slackApiUrl).toBeUndefined();
-    expect(resolveSlackWriteClientOptions(unsupportedApiUrlOption).slackApiUrl).toBeUndefined();
+    expect(resolveSlackWebClientOptions(explicitApiUrlOption).slackApiUrl).toBe(
+      "http://127.0.0.1:49153/api/",
+    );
+    expect(resolveSlackWriteClientOptions(explicitApiUrlOption).slackApiUrl).toBe(
+      "http://127.0.0.1:49153/api/",
+    );
   });
 
   it("passes merged options into WebClient", () => {
@@ -251,7 +255,7 @@ describe("slack web client config", () => {
     expect(WebClient).toHaveBeenCalledTimes(2);
   });
 
-  it("does not separate write clients by Slack API URL client options", () => {
+  it("keeps write clients separated by Slack API URL client options", () => {
     clearProxyEnvForTest();
     try {
       const firstOptions = {
@@ -265,8 +269,8 @@ describe("slack web client config", () => {
       const first = getSlackWriteClient("xoxb-test", firstOptions);
       const second = getSlackWriteClient("xoxb-test", secondOptions);
 
-      expect(second).toBe(first);
-      expect(WebClient).toHaveBeenCalledTimes(1);
+      expect(second).not.toBe(first);
+      expect(WebClient).toHaveBeenCalledTimes(2);
     } finally {
       restoreProxyEnvForTest();
     }

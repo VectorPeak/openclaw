@@ -47,10 +47,10 @@ function resolveSlackApiUrlFromEnv(): string | undefined {
 }
 
 function applySlackApiUrlAndProxyOptions(options: WebClientOptions): void {
-  const slackApiUrl = resolveSlackApiUrlFromEnv();
+  const slackApiUrl = options.slackApiUrl ?? resolveSlackApiUrlFromEnv();
   const proxyTargetUrl = slackApiUrl ?? "https://slack.com/";
   options.agent ??= resolveSlackProxyAgent(proxyTargetUrl);
-  if (slackApiUrl) {
+  if (slackApiUrl !== undefined) {
     options.slackApiUrl = slackApiUrl;
   } else {
     delete options.slackApiUrl;
