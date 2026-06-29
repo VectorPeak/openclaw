@@ -52,7 +52,6 @@ import {
   type OpenClawConfig,
 } from "./channel-api.js";
 import { resolveSlackChannelType, resolveSlackConversationInfo } from "./channel-type.js";
-import { createSlackApiUrlClientOptions, type SlackApiUrlClientOptions } from "./client-options.js";
 import { shouldSuppressLocalSlackExecApprovalPrompt } from "./exec-approvals.js";
 import { resolveSlackGroupRequireMention, resolveSlackGroupToolPolicy } from "./group-policy.js";
 import {
@@ -406,11 +405,6 @@ function formatSlackScopeDiagnostic(params: {
   } as const;
 }
 
-function slackApiUrlOptionArgs(): [] | [SlackApiUrlClientOptions] {
-  const options = createSlackApiUrlClientOptions();
-  return options.slackApiUrl ? [options] : [];
-}
-
 const resolveSlackAllowlistGroupOverrides = createFlatAllowlistOverrideResolver({
   resolveRecord: (account: ResolvedSlackAccount) => account.channels,
   label: (key) => key,
@@ -437,7 +431,6 @@ const resolveSlackAllowlistNames = async ({
   ).resolveSlackUserAllowlist({
     token,
     entries,
-    ...createSlackApiUrlClientOptions(),
   });
 };
 
@@ -677,7 +670,6 @@ export const slackPlugin: ChannelPlugin<ResolvedSlackAccount, SlackProbe> = crea
               (await loadSlackResolveChannelsModule()).resolveSlackChannelAllowlist({
                 token,
                 entries: inputsValue,
-                ...createSlackApiUrlClientOptions(),
               }),
             mapResolved: (entry) =>
               toResolvedTarget(entry, entry.archived ? "archived" : undefined),
@@ -692,7 +684,6 @@ export const slackPlugin: ChannelPlugin<ResolvedSlackAccount, SlackProbe> = crea
             (await loadSlackResolveUsersModule()).resolveSlackUserAllowlist({
               token,
               entries: inputsLocal,
-              ...createSlackApiUrlClientOptions(),
             }),
           mapResolved: (entry) => toResolvedTarget(entry, entry.note),
         });
@@ -721,7 +712,7 @@ export const slackPlugin: ChannelPlugin<ResolvedSlackAccount, SlackProbe> = crea
         }
         return await (
           await loadSlackProbeModule()
-        ).probeSlack(token, timeoutMs, ...slackApiUrlOptionArgs());
+        ).probeSlack(token, timeoutMs);
       },
       formatCapabilitiesProbe: ({ probe }) => {
         const slackProbe = probe as SlackProbe | undefined;
@@ -741,14 +732,13 @@ export const slackPlugin: ChannelPlugin<ResolvedSlackAccount, SlackProbe> = crea
         const botToken = account.botToken?.trim();
         const userToken = account.userToken?.trim();
         const { fetchSlackScopes } = await loadSlackScopesModule();
-        const apiUrlOptionArgs = slackApiUrlOptionArgs();
         const botScopes: SlackScopesResultShape = botToken
-          ? await fetchSlackScopes(botToken, timeoutMs, ...apiUrlOptionArgs)
+          ? await fetchSlackScopes(botToken, timeoutMs)
           : { ok: false, error: "Slack bot token missing." };
         lines.push(formatSlackScopeDiagnostic({ tokenType: "bot", result: botScopes }));
         details.botScopes = botScopes;
         if (userToken) {
-          const userScopes = await fetchSlackScopes(userToken, timeoutMs, ...apiUrlOptionArgs);
+          const userScopes = await fetchSlackScopes(userToken, timeoutMs);
           lines.push(formatSlackScopeDiagnostic({ tokenType: "user", result: userScopes }));
           details.userScopes = userScopes;
         }

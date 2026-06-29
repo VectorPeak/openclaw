@@ -4,7 +4,6 @@ import {
   normalizeOptionalString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { resolveSlackAccount } from "./accounts.js";
-import { createSlackApiUrlClientOptions } from "./client-options.js";
 import { createSlackWebClient } from "./client.js";
 import { normalizeAllowListLower } from "./monitor/allow-list.js";
 import type { OpenClawConfig } from "./runtime-api.js";
@@ -77,7 +76,7 @@ export async function resolveSlackConversationInfo(params: {
   }
 
   try {
-    const client = createSlackWebClient(token, createSlackApiUrlClientOptions());
+    const client = createSlackWebClient(token);
     if (isNativeImChannel) {
       const opened = await client.conversations.open({
         channel: channelId,

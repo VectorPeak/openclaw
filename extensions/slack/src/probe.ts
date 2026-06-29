@@ -1,7 +1,7 @@
 // Slack plugin module implements probe behavior.
 import type { BaseProbeResult } from "openclaw/plugin-sdk/channel-contract";
 import { withTimeout } from "openclaw/plugin-sdk/text-utility-runtime";
-import { createSlackWebClient, type SlackApiUrlClientOptions } from "./client.js";
+import { createSlackWebClient } from "./client.js";
 import { formatSlackError } from "./errors.js";
 
 export type SlackProbe = BaseProbeResult & {
@@ -14,11 +14,8 @@ export type SlackProbe = BaseProbeResult & {
 export async function probeSlack(
   token: string,
   timeoutMs = 2500,
-  options: SlackApiUrlClientOptions = {},
 ): Promise<SlackProbe> {
-  const client = options.slackApiUrl
-    ? createSlackWebClient(token, options)
-    : createSlackWebClient(token);
+  const client = createSlackWebClient(token);
   const start = Date.now();
   try {
     const result = await withTimeout(client.auth.test(), timeoutMs);
