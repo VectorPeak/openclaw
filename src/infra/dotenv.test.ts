@@ -286,6 +286,7 @@ describe("loadDotEnv", () => {
             "CLOUDSDK_PYTHON=./attacker-python",
             "EXAMPLE_API_HOST=https://evil-api.example.com",
             "MINIMAX_API_HOST=https://evil.example.com",
+            "SLACK_API_URL=http://evil-slack.example.com/api/",
             "HTTP_PROXY=http://evil-proxy:8080",
             "HOMEBREW_BREW_FILE=./evil-brew/bin/brew",
             "HOMEBREW_PREFIX=./evil-brew",
@@ -309,6 +310,7 @@ describe("loadDotEnv", () => {
         delete process.env.CLOUDSDK_PYTHON;
         delete process.env.EXAMPLE_API_HOST;
         delete process.env.MINIMAX_API_HOST;
+        delete process.env.SLACK_API_URL;
         delete process.env.HTTP_PROXY;
         delete process.env.HOMEBREW_BREW_FILE;
         delete process.env.HOMEBREW_PREFIX;
@@ -332,6 +334,7 @@ describe("loadDotEnv", () => {
         expect(process.env.CLOUDSDK_PYTHON).toBeUndefined();
         expect(process.env.EXAMPLE_API_HOST).toBeUndefined();
         expect(process.env.MINIMAX_API_HOST).toBeUndefined();
+        expect(process.env.SLACK_API_URL).toBeUndefined();
         expect(process.env.HTTP_PROXY).toBeUndefined();
         expect(process.env.HOMEBREW_BREW_FILE).toBeUndefined();
         expect(process.env.HOMEBREW_PREFIX).toBeUndefined();
@@ -557,6 +560,7 @@ describe("loadDotEnv", () => {
             "HTTP_PROXY=http://proxy.test:8080",
             "OPENCLAW_PINNED_PYTHON=/trusted/python",
             "OPENCLAW_PINNED_WRITE_PYTHON=/trusted/write-python",
+            "SLACK_API_URL=http://trusted-slack.example.com/api/",
           ].join("\n"),
         );
         vi.spyOn(process, "cwd").mockReturnValue(cwdDir);
@@ -564,6 +568,7 @@ describe("loadDotEnv", () => {
         delete process.env.HTTP_PROXY;
         delete process.env.OPENCLAW_PINNED_PYTHON;
         delete process.env.OPENCLAW_PINNED_WRITE_PYTHON;
+        delete process.env.SLACK_API_URL;
 
         loadDotEnv({ quiet: true });
 
@@ -571,6 +576,7 @@ describe("loadDotEnv", () => {
         expect(process.env.HTTP_PROXY).toBe("http://proxy.test:8080");
         expect(process.env.OPENCLAW_PINNED_PYTHON).toBe("/trusted/python");
         expect(process.env.OPENCLAW_PINNED_WRITE_PYTHON).toBe("/trusted/write-python");
+        expect(process.env.SLACK_API_URL).toBe("http://trusted-slack.example.com/api/");
       });
     });
   });

@@ -164,17 +164,17 @@ const BLOCKED_WORKSPACE_DOTENV_KEYS = new Set([
   "PROGRAMFILES(X86)",
   "PROGRAMW6432",
   "STATE_DIRECTORY",
+  "SLACK_API_URL",
   "SYNOLOGY_CHAT_INCOMING_URL",
   "SYNOLOGY_NAS_HOST",
   "UV_PYTHON",
 ]);
 
-// Block endpoint redirection for any service without overfitting per-provider names.
+// Block broad endpoint redirection controls without overfitting per-provider names.
 // `_HOMESERVER` covers Matrix's per-account scoped keys (MATRIX_<ACCOUNT>_HOMESERVER)
 // in addition to the bare MATRIX_HOMESERVER listed above.
 const BLOCKED_WORKSPACE_DOTENV_SUFFIXES = [
   "_API_HOST",
-  "_API_URL",
   "_BASE_URL",
   "_HOMESERVER",
 ];
