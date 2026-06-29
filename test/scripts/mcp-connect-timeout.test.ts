@@ -1,6 +1,6 @@
-// Mcp Connect Timeout tests cover mcp connect timeout script behavior.
+// MCP connect timeout tests cover MCP client harness timeout behavior.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { connectMcpWithTimeout } from "../../scripts/e2e/mcp-connect-timeout.ts";
+import { connectMcpWithTimeout } from "../../scripts/e2e/mcp-client-temp-state.ts";
 
 describe("MCP stdio connect timeout", () => {
   afterEach(() => {

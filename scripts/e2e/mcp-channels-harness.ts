@@ -12,8 +12,11 @@ import { readStringValue } from "../../dist/normalization-core/string-coerce.js"
 import { createGatewayWsClient, type GatewayEventFrame } from "../lib/gateway-ws-client.ts";
 import { resolveGatewaySuccessPayload } from "./lib/gateway-frame-payload.mjs";
 import { readMcpChannelLimits } from "./mcp-channel-limits.ts";
-import { createMcpClientTempState, type McpClientTempState } from "./mcp-client-temp-state.ts";
-import { connectMcpWithTimeout } from "./mcp-connect-timeout.ts";
+import {
+  connectMcpWithTimeout,
+  createMcpClientTempState,
+  type McpClientTempState,
+} from "./mcp-client-temp-state.ts";
 
 export const ClaudeChannelNotificationSchema = z.object({
   method: z.literal("notifications/claude/channel"),

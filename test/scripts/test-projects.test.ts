@@ -2471,6 +2471,7 @@ describe("scripts/test-projects changed-target routing", () => {
         "test/scripts/plugin-prerelease-test-plan.test.ts",
         "test/scripts/docker-e2e-seeds.test.ts",
         "test/scripts/mcp-channels-harness.test.ts",
+        "test/scripts/mcp-connect-timeout.test.ts",
         "test/scripts/mcp-code-mode-gateway-client.test.ts",
         "test/scripts/session-log-mentions.test.ts",
         "src/agents/agent-bundle-mcp-runtime.test.ts",
