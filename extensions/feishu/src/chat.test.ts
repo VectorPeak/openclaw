@@ -14,6 +14,14 @@ vi.mock("./client.js", () => ({
 
 let registerFeishuChatTools: typeof import("./chat.js").registerFeishuChatTools;
 
+type FeishuChatTool = {
+  name?: string;
+  parameters: { properties: Record<string, unknown> };
+  execute: (callId: string, input: Record<string, unknown>) => Promise<{ details: unknown }>;
+};
+
+type FeishuChatToolFactory = (context: { agentAccountId?: string }) => FeishuChatTool;
+
 function createFeishuToolRuntime(): PluginRuntime {
   return {} as PluginRuntime;
 }
@@ -32,6 +40,14 @@ describe("registerFeishuChatTools", () => {
       logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       registerTool: params.registerTool,
     });
+  }
+
+  function buildChatTool(
+    registerTool: { mock: { calls: unknown[][] } },
+    context: { agentAccountId?: string } = {},
+  ): FeishuChatTool {
+    const factory = registerTool.mock.calls[0]?.[0] as FeishuChatToolFactory;
+    return factory(context);
   }
 
   beforeAll(async () => {
@@ -75,7 +91,7 @@ describe("registerFeishuChatTools", () => {
     );
 
     expect(registerTool).toHaveBeenCalledTimes(1);
-    const tool = registerTool.mock.calls[0]?.[0];
+    const tool = buildChatTool(registerTool);
     expect(tool?.name).toBe("feishu_chat");
 
     chatGetMock.mockResolvedValueOnce({
@@ -186,7 +202,7 @@ describe("registerFeishuChatTools", () => {
       }),
     );
 
-    const tool = registerTool.mock.calls[0]?.[0];
+    const tool = buildChatTool(registerTool);
     expect(tool?.parameters.properties.page_size).toMatchObject({
       type: "integer",
       minimum: 1,
@@ -242,6 +258,84 @@ describe("registerFeishuChatTools", () => {
     expect(registerTool).not.toHaveBeenCalled();
   });
 
+  it("routes chat calls to the contextual account when multiple accounts enable chat", async () => {
+    const registerTool = vi.fn();
+    registerFeishuChatTools(
+      createChatToolApi({
+        config: {
+          channels: {
+            feishu: {
+              enabled: true,
+              accounts: {
+                a: {
+                  appId: "app-a",
+                  appSecret: "sec-a", // pragma: allowlist secret
+                  tools: { chat: true },
+                },
+                b: {
+                  appId: "app-b",
+                  appSecret: "sec-b", // pragma: allowlist secret
+                  tools: { chat: true },
+                },
+              },
+            },
+          },
+        },
+        registerTool,
+      }),
+    );
+
+    expect(registerTool).toHaveBeenCalledTimes(1);
+    const tool = buildChatTool(registerTool, { agentAccountId: "b" });
+
+    chatGetMock.mockResolvedValueOnce({
+      code: 0,
+      data: { name: "tenant b group" },
+    });
+    await tool.execute("tc_context_account", { action: "info", chat_id: "oc_b" });
+
+    expect(createFeishuClientMock.mock.calls.at(-1)?.[0]?.appId).toBe("app-b");
+  });
+
+  it("rejects a disabled contextual chat account instead of falling back silently", async () => {
+    const registerTool = vi.fn();
+    registerFeishuChatTools(
+      createChatToolApi({
+        config: {
+          channels: {
+            feishu: {
+              enabled: true,
+              accounts: {
+                a: {
+                  appId: "app-a",
+                  appSecret: "sec-a", // pragma: allowlist secret
+                  tools: { chat: false },
+                },
+                b: {
+                  appId: "app-b",
+                  appSecret: "sec-b", // pragma: allowlist secret
+                  tools: { chat: true },
+                },
+              },
+            },
+          },
+        },
+        registerTool,
+      }),
+    );
+
+    const tool = buildChatTool(registerTool, { agentAccountId: "a" });
+    const result = await tool.execute("tc_disabled_context_account", {
+      action: "info",
+      chat_id: "oc_a",
+    });
+
+    expect(createFeishuClientMock).not.toHaveBeenCalled();
+    expect((result.details as { error?: string }).error).toContain(
+      'Feishu Chat tools are disabled for account \\"a\\"',
+    );
+  });
+
   it("preserves Feishu diagnostics from rejected member lookups", async () => {
     const registerTool = vi.fn();
     registerFeishuChatTools(
@@ -260,7 +354,7 @@ describe("registerFeishuChatTools", () => {
       }),
     );
 
-    const tool = registerTool.mock.calls[0]?.[0];
+    const tool = buildChatTool(registerTool);
     contactUserGetMock.mockRejectedValueOnce(
       Object.assign(new Error("Request failed with status code 400"), {
         response: {
