@@ -17,7 +17,10 @@ let registerFeishuChatTools: typeof import("./chat.js").registerFeishuChatTools;
 type FeishuChatTool = {
   name?: string;
   parameters: { properties: Record<string, unknown> };
-  execute: (callId: string, input: Record<string, unknown>) => Promise<{ details: unknown }>;
+  execute: (
+    callId: string,
+    input: Record<string, unknown>,
+  ) => Promise<{ details: Record<string, unknown> }>;
 };
 
 type FeishuChatToolFactory = (context: { agentAccountId?: string }) => FeishuChatTool;
