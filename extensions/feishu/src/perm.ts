@@ -133,6 +133,7 @@ export function registerFeishuPermTools(api: OpenClawPluginApi) {
   api.registerTool(
     (ctx) => {
       const defaultAccountId = ctx.agentAccountId;
+      const { sessionKey } = ctx;
       return {
         name: "feishu_perm",
         label: "Feishu Perm",
@@ -145,6 +146,7 @@ export function registerFeishuPermTools(api: OpenClawPluginApi) {
               api,
               executeParams: p,
               defaultAccountId,
+              sessionKey,
               requiredTool: { family: "perm", label: "Perm" },
             });
             switch (p.action) {

@@ -1383,22 +1383,29 @@ export function registerFeishuDocTools(api: OpenClawPluginApi) {
   const registered: string[] = [];
   type FeishuDocExecuteParams = FeishuDocParams & { accountId?: string };
 
-  const getClient = (params: { accountId?: string } | undefined, defaultAccountId?: string) =>
+  const getClient = (
+    params: { accountId?: string } | undefined,
+    defaultAccountId?: string,
+    sessionKey?: string,
+  ) =>
     createFeishuToolClient({
       api,
       executeParams: params,
       defaultAccountId,
+      sessionKey,
       requiredTool: { family: "doc", label: "Doc" },
     });
 
   const getMediaMaxBytes = (
     params: { accountId?: string } | undefined,
     defaultAccountId?: string,
+    sessionKey?: string,
   ) =>
     (resolveFeishuToolAccount({
       api,
       executeParams: params,
       defaultAccountId,
+      sessionKey,
       requiredTool: { family: "doc", label: "Doc" },
     }).config?.mediaMaxMb ?? 30) *
     1024 *
@@ -1409,6 +1416,7 @@ export function registerFeishuDocTools(api: OpenClawPluginApi) {
     api.registerTool(
       (ctx) => {
         const defaultAccountId = ctx.agentAccountId;
+        const { sessionKey } = ctx;
         const mediaLocalRoots = resolveDocToolLocalRoots(ctx);
         const trustedRequesterOpenId =
           ctx.messageChannel === "feishu"
@@ -1423,7 +1431,7 @@ export function registerFeishuDocTools(api: OpenClawPluginApi) {
           async execute(_toolCallId, params) {
             const p = params as FeishuDocExecuteParams;
             try {
-              const client = getClient(p, defaultAccountId);
+              const client = getClient(p, defaultAccountId, sessionKey);
               switch (p.action) {
                 case "read":
                   return json(await readDoc(client, p.doc_token));
@@ -1433,7 +1441,7 @@ export function registerFeishuDocTools(api: OpenClawPluginApi) {
                       client,
                       p.doc_token,
                       p.content,
-                      getMediaMaxBytes(p, defaultAccountId),
+                      getMediaMaxBytes(p, defaultAccountId, sessionKey),
                       api.logger,
                     ),
                   );
@@ -1443,7 +1451,7 @@ export function registerFeishuDocTools(api: OpenClawPluginApi) {
                       client,
                       p.doc_token,
                       p.content,
-                      getMediaMaxBytes(p, defaultAccountId),
+                      getMediaMaxBytes(p, defaultAccountId, sessionKey),
                       api.logger,
                     ),
                   );
@@ -1454,7 +1462,7 @@ export function registerFeishuDocTools(api: OpenClawPluginApi) {
                       p.doc_token,
                       p.content,
                       p.after_block_id,
-                      getMediaMaxBytes(p, defaultAccountId),
+                      getMediaMaxBytes(p, defaultAccountId, sessionKey),
                       api.logger,
                     ),
                   );
@@ -1505,7 +1513,7 @@ export function registerFeishuDocTools(api: OpenClawPluginApi) {
                     await uploadImageBlock(
                       client,
                       p.doc_token,
-                      getMediaMaxBytes(p, defaultAccountId),
+                      getMediaMaxBytes(p, defaultAccountId, sessionKey),
                       mediaLocalRoots,
                       p.url,
                       p.file_path,
@@ -1520,7 +1528,7 @@ export function registerFeishuDocTools(api: OpenClawPluginApi) {
                     await uploadFileBlock(
                       client,
                       p.doc_token,
-                      getMediaMaxBytes(p, defaultAccountId),
+                      getMediaMaxBytes(p, defaultAccountId, sessionKey),
                       mediaLocalRoots,
                       p.url,
                       p.file_path,
@@ -1597,6 +1605,7 @@ export function registerFeishuDocTools(api: OpenClawPluginApi) {
               createFeishuToolClient({
                 api,
                 defaultAccountId: ctx.agentAccountId,
+                sessionKey: ctx.sessionKey,
                 requiredTool: { family: "scopes", label: "App Scopes" },
               }),
             );

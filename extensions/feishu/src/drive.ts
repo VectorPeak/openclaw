@@ -752,6 +752,7 @@ export function registerFeishuDriveTools(api: OpenClawPluginApi) {
   api.registerTool(
     (ctx) => {
       const defaultAccountId = ctx.agentAccountId;
+      const { sessionKey } = ctx;
       return {
         name: "feishu_drive",
         label: "Feishu Drive",
@@ -765,6 +766,7 @@ export function registerFeishuDriveTools(api: OpenClawPluginApi) {
               api,
               executeParams: p,
               defaultAccountId,
+              sessionKey,
               requiredTool: { family: "drive", label: "Drive" },
             });
             switch (p.action) {

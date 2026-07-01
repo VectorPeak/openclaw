@@ -1,6 +1,10 @@
 // Feishu tests cover tool account routing plugin behavior.
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import type { OpenClawPluginApi } from "../runtime-api.js";
+import {
+  createFeishuThreadBindingManager,
+  testing as feishuThreadBindingTesting,
+} from "./thread-bindings.js";
 import { createToolFactoryHarness } from "./tool-factory-test-harness.js";
 
 const createFeishuClientMock = vi.fn((account: { appId?: string } | undefined) => ({
@@ -102,6 +106,7 @@ describe("feishu tool account routing", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    feishuThreadBindingTesting.resetFeishuThreadBindingsForTests();
   });
 
   test("wiki tool registers when first account disables it and routes to agentAccountId", async () => {
@@ -132,6 +137,148 @@ describe("feishu tool account routing", () => {
     await tool.execute("call", { action: "search" });
 
     expect(lastClientAppId()).toBe("app-b");
+  });
+
+  test("wiki tool capability fallback beats a default account without wiki enabled", async () => {
+    const { api, resolveTool } = createToolFactoryHarness(
+      createConfig({
+        defaultAccount: "a",
+        toolsA: { wiki: false },
+        toolsB: { wiki: true },
+      }),
+    );
+    registerFeishuWikiTools(api);
+
+    const tool = resolveTool("feishu_wiki");
+    await tool.execute("call", { action: "search" });
+
+    expect(lastClientAppId()).toBe("app-b");
+  });
+
+  test("wiki tool uses the current session's Feishu binding before defaultAccount", async () => {
+    const cfg = createConfig({
+      defaultAccount: "a",
+      toolsA: { wiki: true },
+      toolsB: { wiki: true },
+    });
+    createFeishuThreadBindingManager({ cfg, accountId: "b" }).bindConversation({
+      conversationId: "chat-b",
+      targetKind: "session",
+      targetSessionKey: "agent:main:feishu:bound",
+    });
+    const { api, resolveTool } = createToolFactoryHarness(cfg);
+    registerFeishuWikiTools(api);
+
+    const tool = resolveTool("feishu_wiki", { sessionKey: "agent:main:feishu:bound" });
+    await tool.execute("call", { action: "spaces" });
+
+    expect(lastClientAppId()).toBe("app-b");
+  });
+
+  test("wiki tool uses a configured Feishu binding before defaultAccount", async () => {
+    const cfg = createConfig({
+      defaultAccount: "a",
+      toolsA: { wiki: true },
+      toolsB: { wiki: true },
+    });
+    cfg.bindings = [
+      {
+        type: "route",
+        agentId: "main",
+        match: { channel: "feishu", accountId: "b" },
+      },
+    ];
+    const { api, resolveTool } = createToolFactoryHarness(cfg);
+    registerFeishuWikiTools(api);
+
+    const tool = resolveTool("feishu_wiki", {
+      sessionKey: "agent:main:feishu:configured",
+    });
+    await tool.execute("call", { action: "spaces" });
+
+    expect(lastClientAppId()).toBe("app-b");
+  });
+
+  test("wiki tool uses peer-scoped configured Feishu binding before defaultAccount", async () => {
+    const cfg = createConfig({
+      defaultAccount: "a",
+      toolsA: { wiki: true },
+      toolsB: { wiki: true },
+    });
+    cfg.bindings = [
+      {
+        type: "route",
+        agentId: "main",
+        match: { channel: "feishu", accountId: "a", peer: { kind: "group", id: "chat-a" } },
+      },
+      {
+        type: "route",
+        agentId: "main",
+        match: { channel: "feishu", accountId: "b", peer: { kind: "group", id: "chat-b" } },
+      },
+    ];
+    const { api, resolveTool } = createToolFactoryHarness(cfg);
+    registerFeishuWikiTools(api);
+
+    const tool = resolveTool("feishu_wiki", { sessionKey: "agent:main:feishu:group:chat-b" });
+    await tool.execute("call", { action: "spaces" });
+
+    expect(lastClientAppId()).toBe("app-b");
+  });
+  test("wiki tool rejects ambiguous configured Feishu bindings without route context", async () => {
+    const cfg = createConfig({
+      defaultAccount: "a",
+      toolsA: { wiki: true },
+      toolsB: { wiki: true },
+    });
+    cfg.bindings = [
+      {
+        type: "route",
+        agentId: "main",
+        match: { channel: "feishu", accountId: "a", peer: { kind: "group", id: "chat-a" } },
+      },
+      {
+        type: "route",
+        agentId: "main",
+        match: { channel: "feishu", accountId: "b", peer: { kind: "group", id: "chat-b" } },
+      },
+    ];
+    const { api, resolveTool } = createToolFactoryHarness(cfg);
+    registerFeishuWikiTools(api);
+
+    const tool = resolveTool("feishu_wiki", { sessionKey: "agent:main:main" });
+    const result = await tool.execute("call", { action: "spaces" });
+
+    expect(createFeishuClientMock).not.toHaveBeenCalled();
+    expect(result.details.error).toBe(
+      "Feishu configured tool account is ambiguous for the current session",
+    );
+  });
+
+  test("wiki tool rejects ambiguous Feishu bindings instead of using defaultAccount", async () => {
+    const cfg = createConfig({
+      defaultAccount: "a",
+      toolsA: { wiki: true },
+      toolsB: { wiki: true },
+    });
+    createFeishuThreadBindingManager({ cfg, accountId: "a" }).bindConversation({
+      conversationId: "chat-a",
+      targetKind: "session",
+      targetSessionKey: "agent:main:feishu:ambiguous",
+    });
+    createFeishuThreadBindingManager({ cfg, accountId: "b" }).bindConversation({
+      conversationId: "chat-b",
+      targetKind: "session",
+      targetSessionKey: "agent:main:feishu:ambiguous",
+    });
+    const { api, resolveTool } = createToolFactoryHarness(cfg);
+    registerFeishuWikiTools(api);
+
+    const tool = resolveTool("feishu_wiki", { sessionKey: "agent:main:feishu:ambiguous" });
+    const result = await tool.execute("call", { action: "spaces" });
+
+    expect(createFeishuClientMock).not.toHaveBeenCalled();
+    expect(result.details.error).toBe("Feishu tool account is ambiguous for the current session");
   });
 
   test("wiki tool prefers the active contextual account over configured defaultAccount", async () => {
@@ -283,6 +430,21 @@ describe("feishu tool account routing", () => {
     expect(createFeishuClientMock.mock.calls.at(-1)?.[0]?.appId).toBe("app-b");
   });
 
+  test("bitable tool capability fallback beats a default account without bitable enabled", async () => {
+    const { api, resolveTool } = createToolFactoryHarness(
+      createConfig({
+        defaultAccount: "a",
+        toolsA: { bitable: false },
+        toolsB: { bitable: true },
+      }),
+    );
+    registerFeishuBitableTools(api);
+
+    const tool = resolveTool("feishu_bitable_get_meta");
+    await tool.execute("call", { url: "invalid-url" });
+
+    expect(lastClientAppId()).toBe("app-b");
+  });
   test("bitable tool rejects a disabled contextual account when another account enables it", async () => {
     const { api, resolveTool } = createToolFactoryHarness(
       createConfig({

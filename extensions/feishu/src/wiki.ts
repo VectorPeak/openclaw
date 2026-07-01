@@ -224,6 +224,7 @@ export function registerFeishuWikiTools(api: OpenClawPluginApi) {
   api.registerTool(
     (ctx) => {
       const defaultAccountId = ctx.agentAccountId;
+      const { sessionKey } = ctx;
       return {
         name: "feishu_wiki",
         label: "Feishu Wiki",
@@ -238,6 +239,7 @@ export function registerFeishuWikiTools(api: OpenClawPluginApi) {
                 api,
                 executeParams: p,
                 defaultAccountId,
+                sessionKey,
                 requiredTool: { family: "wiki", label: "Wiki" },
               });
             switch (p.action) {

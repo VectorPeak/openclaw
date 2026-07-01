@@ -3,6 +3,7 @@ import type { OpenClawPluginApi } from "../runtime-api.js";
 
 type ToolContextLike = {
   agentAccountId?: string;
+  sessionKey?: string;
 };
 
 export type ToolLike = {
