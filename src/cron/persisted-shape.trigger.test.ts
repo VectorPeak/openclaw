@@ -43,4 +43,23 @@ describe("persisted cron trigger shape", () => {
       ),
     ).toBe("invalid-trigger");
   });
+
+  it("accepts command payloads with empty argv arguments after the command", () => {
+    expect(
+      getInvalidPersistedCronJobReason(
+        candidate({
+          payload: { kind: "command", argv: ["node", "scripts/report.mjs", ""] },
+          sessionTarget: "isolated",
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      getInvalidPersistedCronJobReason(
+        candidate({
+          payload: { kind: "command", argv: ["", "scripts/report.mjs"] },
+          sessionTarget: "isolated",
+        }),
+      ),
+    ).toBe("invalid-payload");
+  });
 });

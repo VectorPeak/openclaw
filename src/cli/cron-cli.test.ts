@@ -1156,16 +1156,29 @@ describe("cron cli", () => {
   it("converts cron edit payloads to command argv", async () => {
     const patch = await runCronEditAndGetPatch([
       "--command-argv",
-      '["node","scripts/report.mjs","  "]',
+      '["node","scripts/report.mjs",""]',
       "--command-cwd",
       "/srv/app",
     ]);
 
     expect(patch?.patch?.payload).toEqual({
       kind: "command",
-      argv: ["node", "scripts/report.mjs", "  "],
+      argv: ["node", "scripts/report.mjs", ""],
       cwd: "/srv/app",
     });
+  });
+
+  it("rejects command argv without a command element", async () => {
+    await expectCronCommandExit([
+      "cron",
+      "edit",
+      "job-1",
+      "--command-argv",
+      '["","scripts/report.mjs"]',
+    ]);
+    expectRuntimeErrorContaining(
+      "--command-argv must be a non-empty JSON array of strings with a command",
+    );
   });
 
   it("updates command cron timeout without requiring argv to be repeated", async () => {

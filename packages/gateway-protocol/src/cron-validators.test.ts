@@ -140,7 +140,7 @@ describe("cron protocol validators", () => {
         sessionTarget: "isolated",
         payload: {
           kind: "command",
-          argv: ["sh", "-lc", "echo ok"],
+          argv: ["node", "scripts/report.mjs", ""],
           cwd: "/srv/example",
           env: { FOO: "bar" },
           input: "stdin",
@@ -156,11 +156,35 @@ describe("cron protocol validators", () => {
         patch: {
           payload: {
             kind: "command",
-            argv: ["sh", "-lc", "echo updated"],
+            argv: ["sh", "-lc", "echo updated", ""],
           },
         },
       }),
     ).toBe(true);
+  });
+
+  it("rejects command cron payloads without a command argv element", () => {
+    expect(
+      validateCronAddParams({
+        ...minimalAddParams,
+        sessionTarget: "isolated",
+        payload: {
+          kind: "command",
+          argv: ["", "scripts/report.mjs"],
+        },
+      }),
+    ).toBe(false);
+    expect(
+      validateCronUpdateParams({
+        id: "job-1",
+        patch: {
+          payload: {
+            kind: "command",
+            argv: [""],
+          },
+        },
+      }),
+    ).toBe(false);
   });
 
   it("rejects add params when required scheduling fields are missing", () => {

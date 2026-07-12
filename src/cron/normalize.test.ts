@@ -468,15 +468,40 @@ describe("normalizeCronJobCreate", () => {
       schedule: { kind: "every", everyMs: 60_000 },
       payload: {
         kind: "command",
-        argv: ["printf", "%s", "  padded value  "],
+        argv: ["printf", "%s", "  padded value  ", ""],
       },
     }) as unknown as Record<string, unknown>;
 
     expect(normalized.payload).toMatchObject({
       kind: "command",
-      argv: ["printf", "%s", "  padded value  "],
+      argv: ["printf", "%s", "  padded value  ", ""],
     });
     expect(validateCronAddParams(normalized)).toBe(true);
+  });
+
+  it("drops command argv payloads without a command element", () => {
+    const normalized = normalizeCronJobPatch({
+      payload: {
+        kind: "command",
+        argv: ["", "scripts/report.mjs"],
+      },
+    }) as unknown as Record<string, unknown>;
+
+    const payload = normalized.payload as Record<string, unknown>;
+    expect(payload.kind).toBe("command");
+    expect(payload.argv).toBeUndefined();
+    expect(
+      validateCronUpdateParams({
+        id: "job-1",
+        patch: {
+          payload: {
+            kind: "command",
+            argv: ["", "scripts/report.mjs"],
+          },
+        },
+      }),
+    ).toBe(false);
+    expect(validateCronUpdateParams({ id: "job-1", patch: normalized })).toBe(true);
   });
 
   it("preserves timeoutSeconds=0 for no-timeout agentTurn payloads", () => {
